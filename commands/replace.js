@@ -4,7 +4,8 @@ import { join } from 'path';
 import { loadVariantsData } from '../utils/dataLoader.js';
 import { parseDeliverables } from '../utils/parseDeliverables.js';
 import { ErrorLog } from '../utils/errorLogger.js';
-import { CommandLogger } from '../utils/commandLogger.js';
+import { AdvancedCommandLogger } from '../utils/advancedCommandLogger.js';
+import { isUserTimedOut, checkRateLimit, applyTimeout, getTimeoutRemaining } from '../utils/rateLimiter.js';
 
 const historyFilePath = join(process.cwd(), 'replaceHistory.json');
 const variantsDataPath = join(process.cwd(), 'variantsData.json');
@@ -143,9 +144,56 @@ export default {
     const variantInput = interaction.options.getString('variant');
     const visibility = interaction.options.getString('visibility') || 'private';
     const isPrivate = visibility === 'private';
+    const userId = interaction.user.id;
+    const ownerId = process.env.BOT_USER_ID_WHITELIST?.split(',')[0]; // Owner is first in whitelist
 
     try {
-      await CommandLogger.logCommand(interaction, 'replace');
+      // RATE LIMIT CHECK (unless user is owner)
+      if (userId !== ownerId) {
+        // Check if user is timed out
+        if (isUserTimedOut(userId)) {
+          const remaining = getTimeoutRemaining(userId);
+          const daysRemaining = Math.ceil(remaining / (24 * 60 * 60 * 1000));
+          const hoursRemaining = Math.ceil(remaining / (60 * 60 * 1000));
+          const timeStr = daysRemaining >= 1 ? `${daysRemaining} día(s)` : `${hoursRemaining} hora(s)`;
+          
+          try {
+            await interaction.deferReply({ ephemeral: true });
+          } catch (e) {}
+          
+          await interaction.editReply({
+            content: `🚫 **AISLADO DEL SERVIDOR**\n\nTienes un timeout activo por spam/abuso.\n⏱️ Tiempo restante: **${timeStr}**\n\nContacta a un admin si crees que es un error.`
+          });
+          return;
+        }
+
+        // Check rate limit for this user
+        const rateLimitCheck = checkRateLimit(userId, 'replace');
+        if (rateLimitCheck.violated) {
+          // APPLY TIMEOUT: 3 days
+          applyTimeout(userId, interaction.member, interaction.guild, rateLimitCheck.reason);
+          
+          try {
+            await interaction.deferReply({ ephemeral: true });
+          } catch (e) {}
+          
+          await interaction.editReply({
+            content: `🚫 **¡AISLADO POR SPAM!**\n\n**Razón:** ${rateLimitCheck.reason}\n⏱️ **Duración:** 3 días\n\nHas ejecutado demasiados replaces muy rápido. Intenta de nuevo en 3 días.`
+          });
+
+          // Log this to console and error logger
+          console.log(`[RATE-LIMITER] 🚫 User ${userId} (${interaction.user.username}) isolated for 3 days. Reason: ${rateLimitCheck.reason}`);
+          ErrorLog.log('replace-timeout', new Error(`User isolated for spam: ${rateLimitCheck.reason}`), {
+            userId,
+            username: interaction.user.username,
+            reason: rateLimitCheck.reason
+          });
+
+          return;
+        }
+      }
+
+      await AdvancedCommandLogger.logCommand(interaction, 'replace');
       try {
         await interaction.deferReply({ ephemeral: isPrivate });
       } catch (deferError) {
