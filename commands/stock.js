@@ -17,39 +17,80 @@ function loadVariantsData() {
 
 async function getVariantRealItems(api, productId, variantId) {
   try {
-    const deliverablesData = await api.get(
-      `shops/${api.shopId}/products/${productId}/deliverables/${variantId}`
-    );
+    console.log(`[STOCK] === FETCHING ITEMS ===`);
+    console.log(`[STOCK] Product: ${productId}, Variant: ${variantId}`);
     
-    let items = [];
-    
-    if (typeof deliverablesData === 'string') {
-      items = deliverablesData.split('\n').filter(item => item.trim());
-    } else if (deliverablesData?.deliverables && typeof deliverablesData.deliverables === 'string') {
-      items = deliverablesData.deliverables.split('\n').filter(item => item.trim());
-    } else if (deliverablesData?.content && typeof deliverablesData.content === 'string') {
-      items = deliverablesData.content.split('\n').filter(item => item.trim());
-    } else if (deliverablesData?.data && typeof deliverablesData.data === 'string') {
-      items = deliverablesData.data.split('\n').filter(item => item.trim());
-    } else if (Array.isArray(deliverablesData)) {
-      items = deliverablesData.map(item => {
-        if (typeof item === 'string') return item.trim();
-        if (typeof item === 'object' && item?.value) return item.value;
-        return String(item).trim();
-      }).filter(item => item);
-    } else if (deliverablesData?.items && Array.isArray(deliverablesData.items)) {
-      items = deliverablesData.items.map(item => {
-        if (typeof item === 'string') return item.trim();
-        if (typeof item === 'object' && item?.value) return item.value;
-        return String(item).trim();
-      }).filter(item => item);
-    } else if (typeof deliverablesData === 'object' && deliverablesData !== null) {
-      items = Object.values(deliverablesData).map(val => String(val).trim()).filter(item => item);
+    let allItems = [];
+    let page = 1;
+    let hasMore = true;
+    let maxPages = 100;
+
+    while (hasMore && page <= maxPages) {
+      try {
+        // Correct API call with query parameters for pagination
+        const endpoint = `shops/${api.shopId}/products/${productId}/deliverables/${variantId}`;
+        const response = await api.get(endpoint, { page, perPage: 100 });
+        
+        console.log(`[STOCK] Page ${page} - Response type: ${typeof response}`);
+        
+        let pageItems = [];
+        
+        // Parse Laravel pagination response structure
+        if (response?.data && Array.isArray(response.data)) {
+          // Standard Laravel pagination: { data: [...], total, page, ... }
+          pageItems = response.data;
+          console.log(`[STOCK] Page ${page}: Parsed from response.data array`);
+        } else if (Array.isArray(response)) {
+          // Direct array response
+          pageItems = response;
+          console.log(`[STOCK] Page ${page}: Direct array response`);
+        } else if (typeof response === 'string') {
+          // String with newlines (fallback)
+          pageItems = response
+            .split('\n')
+            .map(line => line.trim())
+            .filter(line => line.length > 0);
+          console.log(`[STOCK] Page ${page}: Parsed from string with newlines`);
+        }
+
+        if (pageItems.length === 0) {
+          hasMore = false;
+          console.log(`[STOCK] Page ${page}: No more items`);
+        } else {
+          // Filter out non-string items and ensure they're actual deliverables
+          const validItems = pageItems
+            .map(item => {
+              if (typeof item === 'string') return item.trim();
+              if (typeof item === 'object' && item?.value) return String(item.value).trim();
+              if (typeof item === 'object' && item?.deliverable) return String(item.deliverable).trim();
+              return null;
+            })
+            .filter(item => item && item.length > 0);
+
+          allItems = allItems.concat(validItems);
+          console.log(`[STOCK] Page ${page}: +${validItems.length} valid items (total: ${allItems.length})`);
+          
+          // Check if there are more pages
+          if (response?.next_page_url || pageItems.length === 100) {
+            page++;
+          } else {
+            hasMore = false;
+          }
+        }
+      } catch (e) {
+        console.error(`[STOCK] Page ${page} error:`, e.message);
+        hasMore = false;
+      }
+    }
+
+    console.log(`[STOCK] === FINAL RESULT: ${allItems.length} items ===`);
+    if (allItems.length > 0) {
+      console.log(`[STOCK] First item sample:`, allItems[0].substring(0, 100));
     }
     
-    return items;
+    return allItems;
   } catch (e) {
-    console.error(`[STOCK] Error fetching items for ${productId}/${variantId}:`, e.message);
+    console.error(`[STOCK] ❌ Error fetching items for ${productId}/${variantId}:`, e.message);
     return [];
   }
 }
@@ -285,7 +326,8 @@ export default {
           return;
         }
 
-        // Fetch REAL items from API
+        // Fetch REAL items from API with proper pagination
+        console.log(`[STOCK] User requested items for ${productData.productName} → ${variant.name}`);
         const realItems = await getVariantRealItems(api, productData.productId, variantInput);
         
         const embed = new EmbedBuilder()
@@ -296,7 +338,7 @@ export default {
         const fields = [
           { name: '🏪 Producto', value: productData.productName.substring(0, 1024), inline: false },
           { name: '🎮 Variante', value: variant.name.substring(0, 1024), inline: false },
-          { name: '📊 Stock Reportado', value: variant.stock.toString().substring(0, 1024), inline: false },
+          { name: '📊 Stock en Caché', value: variant.stock.toString().substring(0, 1024), inline: false },
           { name: '🔍 Stock Real (Items)', value: realItems.length.toString().substring(0, 1024), inline: false }
         ];
 
@@ -325,6 +367,12 @@ export default {
             value: itemsText.substring(0, 1024),
             inline: false
           });
+        } else {
+          fields.push({
+            name: '📋 Items',
+            value: '❌ No hay items disponibles',
+            inline: false
+          });
         }
 
         // Add discrepancy warning if needed
@@ -332,7 +380,7 @@ export default {
           embed.setColor(0xFF6600);
           fields.push({
             name: '⚠️ DISCREPANCIA DETECTADA',
-            value: `Cache: ${variant.stock} vs Real: ${realItems.length}. Ejecuta /sync-variants para actualizar.`.substring(0, 1024),
+            value: `Caché: ${variant.stock} vs Real: ${realItems.length}. Ejecuta /sync-variants para actualizar.`.substring(0, 1024),
             inline: false
           });
         }
