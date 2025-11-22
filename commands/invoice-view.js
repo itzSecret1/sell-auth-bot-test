@@ -26,7 +26,7 @@ export default {
       // Validate input
       if (!inputId || inputId.trim() === '') {
         await interaction.editReply({
-          content: '❌ Debes proporcionar un Invoice ID\n💡 Formato: `b30/xxxxxxx`\n💡 Ejemplo: `b30/12345678`'
+          content: '❌ Debes proporcionar un Invoice ID\n💡 Formato: `b30/xxxxxxx`\n💡 Ejemplo: `b30/0aaa28c0694-000000080165178`'
         });
         return;
       }
@@ -37,7 +37,7 @@ export default {
       // Validate invoice format (must contain /)
       if (!cleanId.includes('/')) {
         await interaction.editReply({
-          content: `❌ Formato incorrecto: \`${cleanId}\`\n✅ Formato correcto: \`b30/xxxxxxx\`\n\n💡 El Invoice ID debe contener una "/" (ejemplo: b30/12345678)`
+          content: `❌ Formato incorrecto: \`${cleanId}\`\n✅ Formato correcto: \`b30/xxxxxxx\`\n\n💡 El Invoice ID debe contener una "/" (ejemplo: b30/0aaa28c0694-000000080165178)`
         });
 
         await AdvancedCommandLogger.logCommand(interaction, 'invoice-view', {
@@ -52,11 +52,11 @@ export default {
         return;
       }
 
-      // Validate format parts
+      // Validate format parts - allow alphanumeric and hyphens in second part
       const invoiceParts = cleanId.split('/');
       if (invoiceParts.length !== 2 || !invoiceParts[0] || !invoiceParts[1]) {
         await interaction.editReply({
-          content: `❌ Formato inválido: \`${cleanId}\`\n✅ Debe ser: \`PREFIX/CODE\`\n💡 Ejemplo: \`b30/aaaa28c0694\``
+          content: `❌ Formato inválido: \`${cleanId}\`\n✅ Debe ser: \`PREFIX/CODE\`\n💡 Ejemplo: \`b30/0aaa28c0694-000000080165178\``
         });
 
         await AdvancedCommandLogger.logCommand(interaction, 'invoice-view', {
@@ -66,6 +66,26 @@ export default {
           metadata: {
             'Invoice ID': cleanId,
             'Result': 'Invalid Parts'
+          }
+        });
+        return;
+      }
+
+      // Validate that second part contains only alphanumeric, hyphens, underscores
+      const prefix = invoiceParts[0];
+      const code = invoiceParts[1];
+      if (!/^[a-zA-Z0-9\-_]+$/.test(code)) {
+        await interaction.editReply({
+          content: `❌ Código inválido: \`${code}\`\n✅ Solo caracteres alfanuméricos, guiones y guiones bajos permitidos`
+        });
+
+        await AdvancedCommandLogger.logCommand(interaction, 'invoice-view', {
+          status: 'EXECUTED',
+          result: `Invalid code characters: ${code}`,
+          executionTime: Date.now() - startTime,
+          metadata: {
+            'Invoice ID': cleanId,
+            'Result': 'Invalid Characters'
           }
         });
         return;
