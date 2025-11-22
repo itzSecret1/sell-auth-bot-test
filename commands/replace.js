@@ -73,8 +73,10 @@ async function getVariantStock(api, productId, variantId) {
       items = Object.values(deliverablesData).map(val => String(val).trim()).filter(item => item);
     }
     
+    console.log(`[STOCK CHECK] Product ${productId}, Variant ${variantId}: Found ${items.length} items`);
     return items;
   } catch (e) {
+    console.error(`[STOCK CHECK ERROR] Product ${productId}, Variant ${variantId}: ${e.message}`);
     return [];
   }
 }
@@ -211,102 +213,129 @@ export default {
 
       const deliverablesArray = await getVariantStock(api, product.id, variant.id);
 
-      if (deliverablesArray.length > 0) {
-        if (deliverablesArray.length < quantity) {
-          await interaction.editReply({ 
-            content: `❌ Stock insuficiente. Disponible: ${deliverablesArray.length}`
-          });
-          return;
-        }
+      // Validate we have enough items
+      if (deliverablesArray.length === 0) {
+        await interaction.editReply({ 
+          content: `❌ No hay items en stock. Ejecuta /sync-variants para actualizar.`
+        });
+        return;
+      }
 
-        const removedItems = deliverablesArray.splice(0, quantity);
-        const newDeliverablesString = deliverablesArray.join('\n');
-        const remainingStock = deliverablesArray.length;
+      if (deliverablesArray.length < quantity) {
+        const discrepancy = cachedStock - deliverablesArray.length;
+        console.warn(`[STOCK MISMATCH] Cache: ${cachedStock}, API: ${deliverablesArray.length}, Diff: ${discrepancy}`);
+        await interaction.editReply({ 
+          content: `❌ Stock insuficiente.\n` +
+                   `Cache dice: ${cachedStock}\n` +
+                   `API real: ${deliverablesArray.length}\n` +
+                   `Ejecuta /sync-variants para sincronizar.`
+        });
+        return;
+      }
 
-        try {
-          await api.put(
-            `shops/${api.shopId}/products/${product.id}/deliverables/overwrite/${variant.id}`,
-            { deliverables: newDeliverablesString }
-          );
-        } catch (updateError) {
-          await interaction.editReply({ 
-            content: `❌ Error actualizando stock: ${updateError.message}` 
-          });
-          return;
-        }
+      // Safely remove items and prepare new data
+      const removedItems = deliverablesArray.splice(0, quantity);
+      const newDeliverablesString = deliverablesArray.join('\n');
+      const remainingStock = deliverablesArray.length;
 
-        // Update cache with new stock
+      // Validate items were actually removed (double-check)
+      if (removedItems.length !== quantity) {
+        console.error(`[REMOVE ERROR] Expected ${quantity} items, got ${removedItems.length}`);
+        await interaction.editReply({ 
+          content: `❌ Error crítico: No se pudieron remover todos los items.` 
+        });
+        return;
+      }
+
+      // Try to update in API
+      try {
+        console.log(`[REPLACE] Updating ${product.id}/${variant.id}: Removing ${quantity} items, ${remainingStock} remaining`);
+        await api.put(
+          `shops/${api.shopId}/products/${product.id}/deliverables/overwrite/${variant.id}`,
+          { deliverables: newDeliverablesString }
+        );
+      } catch (updateError) {
+        console.error(`[REPLACE ERROR] API PUT failed: ${updateError.message}`);
+        await interaction.editReply({ 
+          content: `❌ Error guardando cambios en la API.\n` +
+                   `Stock NO fue modificado. Intenta de nuevo.`
+        });
+        return;
+      }
+
+      // Update cache ONLY after successful API update
+      try {
         const variantsData = loadVariantsData();
         if (variantsData[product.id.toString()]?.variants[variant.id.toString()]) {
           variantsData[product.id.toString()].variants[variant.id.toString()].stock = remainingStock;
           writeFileSync(variantsDataPath, JSON.stringify(variantsData, null, 2));
+          console.log(`[CACHE] Updated: ${product.id}/${variant.id} - New stock: ${remainingStock}`);
         }
-
-        addToHistory(product.id, product.name, removedItems, variant.id, variant.name);
-
-        // Build items list - split into multiple fields if too long
-        const embeds = [];
-        const mainEmbed = new EmbedBuilder()
-          .setColor(0x00AA00)
-          .setTitle('✅ REPLACE COMPLETADO')
-          .setDescription(`Stock removido exitosamente`)
-          .addFields(
-            { name: '📦 Producto', value: product.name, inline: false },
-            { name: '🎮 Variante', value: variant.name, inline: false },
-            { name: '📊 Items Removidos', value: quantity.toString(), inline: true },
-            { name: '📈 Stock Restante', value: deliverablesArray.length.toString(), inline: true }
-          )
-          .setFooter({ text: `Timestamp: ${new Date().toLocaleTimeString()}` });
-
-        // Add all items to embed, potentially split across multiple embeds
-        let currentItemsList = '';
-        let itemsEmbeds = [];
-        
-        for (let i = 0; i < removedItems.length; i++) {
-          const line = `${i + 1}. ${removedItems[i]}\n`;
-          
-          if (currentItemsList.length + line.length < 1020) {
-            currentItemsList += line;
-          } else {
-            // Save current embed and start new one
-            if (currentItemsList) {
-              itemsEmbeds.push(currentItemsList);
-            }
-            currentItemsList = line;
-          }
-        }
-        
-        // Add last chunk
-        if (currentItemsList) {
-          itemsEmbeds.push(currentItemsList);
-        }
-
-        // Add items to main embed or create additional embeds
-        if (itemsEmbeds.length === 1) {
-          mainEmbed.addFields({ name: '📋 Items', value: itemsEmbeds[0], inline: false });
-          embeds.push(mainEmbed);
-        } else if (itemsEmbeds.length > 1) {
-          mainEmbed.addFields({ name: '📋 Items (Part 1)', value: itemsEmbeds[0], inline: false });
-          embeds.push(mainEmbed);
-          
-          for (let i = 1; i < itemsEmbeds.length; i++) {
-            const partEmbed = new EmbedBuilder()
-              .setColor(0x00AA00)
-              .addFields({ name: `📋 Items (Part ${i + 1})`, value: itemsEmbeds[i], inline: false })
-              .setFooter({ text: `Timestamp: ${new Date().toLocaleTimeString()}` });
-            embeds.push(partEmbed);
-          }
-        } else {
-          mainEmbed.addFields({ name: '📋 Items', value: 'Sin items', inline: false });
-          embeds.push(mainEmbed);
-        }
-
-        await interaction.editReply({ embeds: embeds });
-      } else {
-        await interaction.editReply({
-          content: `❌ No se pudieron obtener los items del stock en este momento. Intenta de nuevo.`
-        });
+      } catch (cacheError) {
+        console.error(`[CACHE ERROR] ${cacheError.message}`);
+        // Cache error doesn't fail the operation since API was updated
       }
+
+      addToHistory(product.id, product.name, removedItems, variant.id, variant.name);
+
+      // Build items list - split into multiple fields if too long
+      const embeds = [];
+      const mainEmbed = new EmbedBuilder()
+        .setColor(0x00AA00)
+        .setTitle('✅ REPLACE COMPLETADO')
+        .setDescription(`Stock removido exitosamente`)
+        .addFields(
+          { name: '📦 Producto', value: product.name, inline: false },
+          { name: '🎮 Variante', value: variant.name, inline: false },
+          { name: '📊 Items Removidos', value: quantity.toString(), inline: true },
+          { name: '📈 Stock Restante', value: deliverablesArray.length.toString(), inline: true }
+        )
+        .setFooter({ text: `Timestamp: ${new Date().toLocaleTimeString()}` });
+
+      // Add all items to embed, potentially split across multiple embeds
+      let currentItemsList = '';
+      let itemsEmbeds = [];
+      
+      for (let i = 0; i < removedItems.length; i++) {
+        const line = `${i + 1}. ${removedItems[i]}\n`;
+        
+        if (currentItemsList.length + line.length < 1020) {
+          currentItemsList += line;
+        } else {
+          // Save current embed and start new one
+          if (currentItemsList) {
+            itemsEmbeds.push(currentItemsList);
+          }
+          currentItemsList = line;
+        }
+      }
+      
+      // Add last chunk
+      if (currentItemsList) {
+        itemsEmbeds.push(currentItemsList);
+      }
+
+      // Add items to main embed or create additional embeds
+      if (itemsEmbeds.length === 1) {
+        mainEmbed.addFields({ name: '📋 Items', value: itemsEmbeds[0], inline: false });
+        embeds.push(mainEmbed);
+      } else if (itemsEmbeds.length > 1) {
+        mainEmbed.addFields({ name: '📋 Items (Part 1)', value: itemsEmbeds[0], inline: false });
+        embeds.push(mainEmbed);
+        
+        for (let i = 1; i < itemsEmbeds.length; i++) {
+          const partEmbed = new EmbedBuilder()
+            .setColor(0x00AA00)
+            .addFields({ name: `📋 Items (Part ${i + 1})`, value: itemsEmbeds[i], inline: false })
+            .setFooter({ text: `Timestamp: ${new Date().toLocaleTimeString()}` });
+          embeds.push(partEmbed);
+        }
+      } else {
+        mainEmbed.addFields({ name: '📋 Items', value: 'Sin items', inline: false });
+        embeds.push(mainEmbed);
+      }
+
+      await interaction.editReply({ embeds: embeds });
 
     } catch (error) {
       await interaction.editReply({ 
