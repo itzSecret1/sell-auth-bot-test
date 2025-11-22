@@ -14,7 +14,10 @@ export default {
 
   async execute(interaction, api) {
     try {
-      await interaction.deferReply({ ephemeral: true });
+      // Quick response to prevent timeout
+      if (!interaction.deferred && !interaction.replied) {
+        await interaction.deferReply({ ephemeral: true }).catch(() => {});
+      }
 
       const startTime = Date.now();
       const allVariants = {};
@@ -124,12 +127,23 @@ export default {
         .setDescription(reportText)
         .setTimestamp();
 
-      await interaction.editReply({ embeds: [embed] });
+      if (interaction.deferred || interaction.replied) {
+        await interaction.editReply({ embeds: [embed] }).catch(() => {});
+      } else {
+        await interaction.reply({ embeds: [embed], ephemeral: true }).catch(() => {});
+      }
     } catch (error) {
       console.error('Sync error:', error);
-      await interaction.editReply({ 
-        content: `❌ Error en sincronización: ${error.message}` 
-      });
+      if (interaction.deferred || interaction.replied) {
+        await interaction.editReply({ 
+          content: `❌ Error en sincronización: ${error.message}` 
+        }).catch(() => {});
+      } else {
+        await interaction.reply({
+          content: `❌ Error en sincronización: ${error.message}`,
+          ephemeral: true
+        }).catch(() => {});
+      }
     }
   }
 };
