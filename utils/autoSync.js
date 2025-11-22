@@ -3,6 +3,28 @@ import { join } from 'path';
 
 const variantsDataPath = join(process.cwd(), 'variantsData.json');
 
+async function getRealStockFromDeliverables(api, productId, variantId) {
+  try {
+    const deliverablesData = await api.get(
+      `shops/${api.shopId}/products/${productId}/deliverables/${variantId}`
+    );
+    
+    let items = [];
+    
+    if (typeof deliverablesData === 'string') {
+      items = deliverablesData.split('\n').filter(item => item.trim());
+    } else if (deliverablesData?.deliverables && typeof deliverablesData.deliverables === 'string') {
+      items = deliverablesData.deliverables.split('\n').filter(item => item.trim());
+    } else if (Array.isArray(deliverablesData)) {
+      items = deliverablesData.filter(item => item && item.trim?.());
+    }
+    
+    return items.length;
+  } catch (e) {
+    return 0;
+  }
+}
+
 async function autoSyncVariants(api) {
   try {
     const allVariants = {};
@@ -20,14 +42,16 @@ async function autoSyncVariants(api) {
           const variantMap = {};
 
           for (const variant of product.variants) {
-            const stock = variant.stock || 0;
+            // Get REAL stock from deliverables endpoint instead of product.variants.stock
+            const realStock = await getRealStockFromDeliverables(api, product.id, variant.id);
+            
             variantMap[variant.id.toString()] = {
               id: variant.id,
               name: variant.name,
-              stock: stock
+              stock: realStock
             };
             
-            if (stock > 0) totalVariants++;
+            if (realStock > 0) totalVariants++;
           }
 
           allVariants[product.id.toString()] = {
