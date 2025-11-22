@@ -1,7 +1,7 @@
 import { SlashCommandBuilder, EmbedBuilder } from 'discord.js';
 import { loadVariantsData } from '../utils/dataLoader.js';
 import { parseDeliverables } from '../utils/parseDeliverables.js';
-import { CommandLogger } from '../utils/commandLogger.js';
+import { AdvancedCommandLogger } from '../utils/advancedCommandLogger.js';
 
 async function getVariantRealItems(api, productId, variantId) {
   if (!productId || !variantId) {
@@ -88,8 +88,8 @@ export default {
   },
 
   async execute(interaction, api) {
+    const startTime = Date.now();
     try {
-      await CommandLogger.logCommand(interaction, 'stock');
       if (!interaction.deferred && !interaction.replied) {
         await interaction.deferReply({ ephemeral: true }).catch(() => {});
       }
@@ -140,6 +140,18 @@ export default {
           const batch = embeds.slice(i, i + 10);
           await interaction.followUp({ embeds: batch, ephemeral: true });
         }
+        
+        const executionTime = Date.now() - startTime;
+        await AdvancedCommandLogger.logCommand(interaction, 'stock', {
+          status: 'EXECUTED',
+          result: `Showed ${embeds.length} products`,
+          executionTime,
+          metadata: {
+            'Products': embeds.length,
+            'Mode': 'All products',
+            'Filter': 'None'
+          }
+        });
         return;
       }
 
@@ -176,6 +188,18 @@ export default {
         } else {
           await interaction.reply({ embeds: [embed], ephemeral: true }).catch(() => {});
         }
+        
+        const executionTime = Date.now() - startTime;
+        await AdvancedCommandLogger.logCommand(interaction, 'stock', {
+          status: 'EXECUTED',
+          result: `Showed ${productData.productName}`,
+          executionTime,
+          metadata: {
+            'Product': productData.productName,
+            'Product ID': productData.productId,
+            'Variants': Object.keys(productData.variants || {}).length
+          }
+        });
         return;
       }
 
