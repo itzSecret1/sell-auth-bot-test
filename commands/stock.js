@@ -15,10 +15,49 @@ function loadVariantsData() {
   return {};
 }
 
+async function getVariantRealItems(api, productId, variantId) {
+  try {
+    const deliverablesData = await api.get(
+      `shops/${api.shopId}/products/${productId}/deliverables/${variantId}`
+    );
+    
+    let items = [];
+    
+    if (typeof deliverablesData === 'string') {
+      items = deliverablesData.split('\n').filter(item => item.trim());
+    } else if (deliverablesData?.deliverables && typeof deliverablesData.deliverables === 'string') {
+      items = deliverablesData.deliverables.split('\n').filter(item => item.trim());
+    } else if (deliverablesData?.content && typeof deliverablesData.content === 'string') {
+      items = deliverablesData.content.split('\n').filter(item => item.trim());
+    } else if (deliverablesData?.data && typeof deliverablesData.data === 'string') {
+      items = deliverablesData.data.split('\n').filter(item => item.trim());
+    } else if (Array.isArray(deliverablesData)) {
+      items = deliverablesData.map(item => {
+        if (typeof item === 'string') return item.trim();
+        if (typeof item === 'object' && item?.value) return item.value;
+        return String(item).trim();
+      }).filter(item => item);
+    } else if (deliverablesData?.items && Array.isArray(deliverablesData.items)) {
+      items = deliverablesData.items.map(item => {
+        if (typeof item === 'string') return item.trim();
+        if (typeof item === 'object' && item?.value) return item.value;
+        return String(item).trim();
+      }).filter(item => item);
+    } else if (typeof deliverablesData === 'object' && deliverablesData !== null) {
+      items = Object.values(deliverablesData).map(val => String(val).trim()).filter(item => item);
+    }
+    
+    return items;
+  } catch (e) {
+    console.error(`[STOCK] Error fetching items for ${productId}/${variantId}:`, e.message);
+    return [];
+  }
+}
+
 export default {
   data: new SlashCommandBuilder()
     .setName('stock')
-    .setDescription('Check stock of products')
+    .setDescription('Check stock of products and see real items')
     .addStringOption(option => 
       option.setName('product')
         .setDescription('Product name or ID (optional)')
@@ -111,7 +150,6 @@ export default {
       if (!productInput && !variantInput) {
         const embeds = [];
         
-        // Group by product
         Object.entries(variantsData).forEach(([productId, productData]) => {
           const embed = new EmbedBuilder()
             .setColor(0x0099FF)
@@ -137,11 +175,9 @@ export default {
           return;
         }
 
-        // Send up to 10 embeds (Discord limit)
         const firstBatch = embeds.slice(0, 10);
         await interaction.editReply({ embeds: firstBatch });
 
-        // If more than 10 products, send the rest in follow-up messages
         for (let i = 10; i < embeds.length; i += 10) {
           const batch = embeds.slice(i, i + 10);
           await interaction.followUp({ embeds: batch, ephemeral: true });
@@ -176,7 +212,7 @@ export default {
         return;
       }
 
-      // Case 3: Both product and variant specified
+      // Case 3: Both product and variant specified - show REAL items
       if (productInput && variantInput) {
         const productData = Object.values(variantsData).find(p => 
           p.productId.toString() === productInput
@@ -198,14 +234,48 @@ export default {
           return;
         }
 
+        // Fetch REAL items from API
+        const realItems = await getVariantRealItems(api, productData.productId, variantInput);
+        
         const embed = new EmbedBuilder()
           .setColor(0x0099FF)
           .setTitle(`📦 Stock Detallado`)
           .addFields(
             { name: '🏪 Producto', value: productData.productName, inline: false },
             { name: '🎮 Variante', value: variant.name, inline: false },
-            { name: '📊 Stock', value: `**${variant.stock}** items`, inline: false }
+            { name: '📊 Stock Reportado', value: `**${variant.stock}** items`, inline: false },
+            { name: '🔍 Stock Real (Items)', value: `**${realItems.length}** items`, inline: false }
           );
+
+        // Add items if any
+        if (realItems.length > 0) {
+          let itemsText = '';
+          
+          // Show items grouped in chunks
+          for (let i = 0; i < Math.min(20, realItems.length); i++) {
+            itemsText += `${i + 1}. ${realItems[i]}\n`;
+          }
+
+          if (realItems.length > 20) {
+            itemsText += `\n... y ${realItems.length - 20} items más`;
+          }
+
+          embed.addFields({ 
+            name: '📋 Items (primeros)', 
+            value: itemsText || 'Sin items', 
+            inline: false 
+          });
+        }
+
+        // Discrepancy warning
+        if (realItems.length !== variant.stock) {
+          embed.setColor(0xFF6600);
+          embed.addFields({
+            name: '⚠️ DISCREPANCIA DETECTADA',
+            value: `Cache: ${variant.stock} vs Real: ${realItems.length}. Ejecuta /sync-variants para actualizar.`,
+            inline: false
+          });
+        }
 
         await interaction.editReply({ embeds: [embed] });
         return;
