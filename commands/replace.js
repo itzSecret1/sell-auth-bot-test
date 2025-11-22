@@ -115,30 +115,31 @@ export default {
   async autocomplete(interaction, api) {
     try {
       const focusedOption = interaction.options.getFocused(true);
+      let responded = false;
       
-      if (focusedOption.name === 'product') {
-        try {
-          const products = await api.get(`shops/${api.shopId}/products`);
-          const productList = Array.isArray(products) ? products : (products?.data || []);
-          
-          const filtered = productList
+      try {
+        if (focusedOption.name === 'product') {
+          // Use ONLY cached data - no API calls in autocomplete!
+          const variantsData = loadVariantsData();
+          const products = Object.values(variantsData)
+            .map(p => ({ 
+              name: p.productName, 
+              id: p.productId 
+            }))
             .filter(p => p.name.toLowerCase().includes(focusedOption.value.toLowerCase()))
             .slice(0, 25);
 
           await interaction.respond(
-            filtered.map(p => ({ name: p.name, value: p.id.toString() }))
+            products.map(p => ({ name: p.name, value: p.id.toString() }))
           );
-        } catch (e) {
-          console.error(`[AUTOCOMPLETE] Product error: ${e.message}`);
-          await interaction.respond([]).catch(() => {});
-        }
-      } 
-      else if (focusedOption.name === 'variant') {
-        try {
+          responded = true;
+        } 
+        else if (focusedOption.name === 'variant') {
           const productInput = interaction.options.getString('product');
           
           if (!productInput) {
-            await interaction.respond([]).catch(() => {});
+            await interaction.respond([]);
+            responded = true;
             return;
           }
 
@@ -148,7 +149,8 @@ export default {
           );
 
           if (!productData || !productData.variants) {
-            await interaction.respond([]).catch(() => {});
+            await interaction.respond([]);
+            responded = true;
             return;
           }
 
@@ -160,13 +162,20 @@ export default {
             .slice(0, 25);
 
           await interaction.respond(variants);
-        } catch (e) {
-          console.error(`[AUTOCOMPLETE] Variant error: ${e.message}`);
-          await interaction.respond([]).catch(() => {});
+          responded = true;
+        }
+      } catch (e) {
+        // Only try empty response if we haven't responded yet
+        if (!responded && interaction.responded === false) {
+          try {
+            await interaction.respond([]);
+          } catch (respondError) {
+            // Silent fail - interaction already acknowledged
+          }
         }
       }
     } catch (error) {
-      console.error(`[AUTOCOMPLETE] Unexpected error: ${error.message}`);
+      // Silent fail - don't crash on autocomplete errors
     }
   },
 
