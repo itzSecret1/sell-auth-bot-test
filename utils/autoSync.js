@@ -120,21 +120,12 @@ export function startAutoSync(api) {
     }
   }
 
-  console.log('[AUTO-SYNC] Starting auto-sync...');
+  console.log('[AUTO-SYNC] Starting initial sync...');
   
   // Run first sync in background (don't block)
   setImmediate(() => {
     autoSyncVariants(api).catch(err => console.error('[AUTO-SYNC] Initial sync error:', err.message));
   });
 
-  // Run sync every 30 seconds
-  setInterval(async () => {
-    try {
-      await autoSyncVariants(api);
-    } catch (err) {
-      console.error('[AUTO-SYNC] Sync error:', err.message);
-    }
-  }, 30000);
-
-  console.log('[AUTO-SYNC] Auto-sync started - updating every 30 seconds (batch size: 5)');
+  console.log('[AUTO-SYNC] Initial sync queued. Use /sync-variants command to update.');
 }
