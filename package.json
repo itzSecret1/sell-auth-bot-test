@@ -10,7 +10,7 @@
   "repository": "github:sellauth-com/sellauth-discord-bot",
   "bugs": "https://github.com/sellauth-com/sellauth-discord-bot/issues",
   "engines": {
-    "node": ">=16.11.0"
+    "node": "18.x || 20.x"
   },
   "scripts": {
     "dev": "nodemon index.js",
@@ -19,9 +19,10 @@
   },
   "dependencies": {
     "@octokit/rest": "^22.0.1",
+    "axios": "^1.13.2",
+    "chokidar": "^4.0.3",
     "discord.js": "^14.15.3",
-    "dotenv": "^16.4.5",
-    "node-fetch": "^3.3.2"
+    "dotenv": "^16.4.5"
   },
   "devDependencies": {
     "nodemon": "^2.0.22",
