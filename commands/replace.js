@@ -47,7 +47,6 @@ async function getVariantStock(api, productId, variantId) {
     
     let items = [];
     
-    // Try multiple parsing methods to handle different API response formats
     if (typeof deliverablesData === 'string') {
       items = deliverablesData.split('\n').filter(item => item.trim());
     } else if (deliverablesData?.deliverables && typeof deliverablesData.deliverables === 'string') {
@@ -69,7 +68,6 @@ async function getVariantStock(api, productId, variantId) {
         return String(item).trim();
       }).filter(item => item);
     } else if (typeof deliverablesData === 'object' && deliverablesData !== null) {
-      // Last resort: convert object values to array
       items = Object.values(deliverablesData).map(val => String(val).trim()).filter(item => item);
     }
     
@@ -119,7 +117,6 @@ export default {
       
       try {
         if (focusedOption.name === 'product') {
-          // Use ONLY cached data - no API calls in autocomplete!
           const variantsData = loadVariantsData();
           const products = Object.values(variantsData)
             .map(p => ({ 
@@ -165,17 +162,16 @@ export default {
           responded = true;
         }
       } catch (e) {
-        // Only try empty response if we haven't responded yet
         if (!responded && interaction.responded === false) {
           try {
             await interaction.respond([]);
           } catch (respondError) {
-            // Silent fail - interaction already acknowledged
+            // Silent fail
           }
         }
       }
     } catch (error) {
-      // Silent fail - don't crash on autocomplete errors
+      // Silent fail
     }
   },
 
@@ -187,48 +183,39 @@ export default {
     const isPrivate = visibility === 'private';
 
     try {
-      // Defer reply with safety check
       try {
         await interaction.deferReply({ ephemeral: isPrivate });
       } catch (deferError) {
         console.error(`[REPLACE] Defer error: ${deferError.message}`);
-        // Fallback: try reply without defer
-        try {
-          await interaction.reply({ content: 'Processing...', ephemeral: isPrivate });
-        } catch (replyError) {
-          console.error(`[REPLACE] Reply fallback error: ${replyError.message}`);
-          return;
-        }
+        return;
       }
 
-      const products = await api.get(`shops/${api.shopId}/products`);
-      const productList = Array.isArray(products) ? products : (products?.data || []);
+      // Load data from cache
+      const variantsData = loadVariantsData();
       
-      let product = productList.find(p => p.id.toString() === productInput);
-
-      if (!product) {
+      // Find product by ID in cache
+      const productData = variantsData[productInput];
+      if (!productData) {
         await interaction.editReply({ 
           content: `❌ Producto no encontrado: ${productInput}` 
         });
         return;
       }
 
-      const variant = product.variants?.find(v => v.id.toString() === variantInput);
-      if (!variant) {
+      // Find variant by ID
+      const variantData = productData.variants[variantInput];
+      if (!variantData) {
         await interaction.editReply({ 
           content: `❌ Variante no encontrada` 
         });
         return;
       }
 
-      const variantsData = loadVariantsData();
-      const cachedProduct = variantsData[product.id.toString()];
-      const cachedVariant = cachedProduct?.variants[variant.id.toString()];
-      const cachedStock = cachedVariant?.stock || 0;
+      const cachedStock = variantData.stock || 0;
 
       if (cachedStock === 0) {
         await interaction.editReply({ 
-          content: `❌ No hay stock en variante **${variant.name}** para **${product.name}**`
+          content: `❌ No hay stock en variante **${variantData.name}** para **${productData.productName}**`
         });
         return;
       }
@@ -242,9 +229,8 @@ export default {
         return;
       }
 
-      const deliverablesArray = await getVariantStock(api, product.id, variant.id);
+      const deliverablesArray = await getVariantStock(api, productData.productId, variantData.id);
 
-      // Validate we have enough items
       if (deliverablesArray.length === 0) {
         await interaction.editReply({ 
           content: `❌ No hay items en stock. Ejecuta /sync-variants para actualizar.`
@@ -264,121 +250,76 @@ export default {
         return;
       }
 
-      // IMPORTANT: Do NOT modify the original array yet - work with a copy
+      // Remove items
       const itemsCopy = [...deliverablesArray];
       const removedItems = itemsCopy.splice(0, quantity);
       const newDeliverablesString = itemsCopy.join('\n');
       const remainingStock = itemsCopy.length;
 
-      // Validate items were actually removed (double-check)
       if (removedItems.length !== quantity) {
-        console.error(`[REMOVE ERROR] Expected ${quantity} items, got ${removedItems.length}`);
         await interaction.editReply({ 
-          content: `❌ Error crítico: No se pudieron remover todos los items.` 
+          content: `❌ Error: No se extrajeron los items correctamente` 
         });
         return;
       }
 
-      // Try to update in API - DO THIS FIRST before changing anything else
-      let apiUpdateSuccess = false;
+      // Update API
       try {
-        console.log(`[REPLACE] Updating ${product.id}/${variant.id}: Removing ${quantity} items, ${remainingStock} remaining`);
         await api.put(
-          `shops/${api.shopId}/products/${product.id}/deliverables/overwrite/${variant.id}`,
+          `shops/${api.shopId}/products/${productData.productId}/deliverables/overwrite/${variantData.id}`,
           { deliverables: newDeliverablesString }
         );
-        apiUpdateSuccess = true;
-        console.log(`[REPLACE] API PUT successful`);
-      } catch (updateError) {
-        console.error(`[REPLACE ERROR] API PUT failed: ${updateError.message}`);
+        console.log(`[REPLACE] API updated for ${productData.productId}/${variantData.id}`);
+      } catch (putError) {
+        console.error(`[REPLACE] API PUT failed: ${putError.message}`);
         await interaction.editReply({ 
-          content: `❌ Error actualizando stock en la API.\n` +
-                   `Stock NO fue modificado. Intenta de nuevo.`
+          content: `❌ Error actualizando stock en API: ${putError.message}` 
         });
         return;
       }
 
-      // Update cache ONLY after successful API update
-      if (apiUpdateSuccess) {
-        try {
-          const variantsData = loadVariantsData();
-          if (variantsData[product.id.toString()]?.variants[variant.id.toString()]) {
-            variantsData[product.id.toString()].variants[variant.id.toString()].stock = remainingStock;
-            writeFileSync(variantsDataPath, JSON.stringify(variantsData, null, 2));
-            console.log(`[CACHE] Updated: ${product.id}/${variant.id} - New stock: ${remainingStock}`);
-          }
-        } catch (cacheError) {
-          console.error(`[CACHE ERROR] ${cacheError.message}`);
-          // Cache error doesn't fail the operation since API was updated
-        }
-
-        // Save to history ONLY if API update was successful
-        addToHistory(product.id, product.name, removedItems, variant.id, variant.name);
+      // Update cache
+      try {
+        variantsData[productData.productId.toString()].variants[variantData.id.toString()].stock = remainingStock;
+        writeFileSync(variantsDataPath, JSON.stringify(variantsData, null, 2));
+        console.log(`[REPLACE] Cache updated: ${productData.productId}/${variantData.id} - New stock: ${remainingStock}`);
+      } catch (cacheError) {
+        console.error(`[REPLACE] Cache update error: ${cacheError.message}`);
       }
 
-      // Build items list - split into multiple fields if too long
-      const embeds = [];
-      const mainEmbed = new EmbedBuilder()
+      // Add to history
+      addToHistory(productData.productId, productData.productName, removedItems, variantData.id, variantData.name);
+
+      // Create response embed
+      const embed = new EmbedBuilder()
         .setColor(0x00AA00)
-        .setTitle('✅ REPLACE COMPLETADO')
-        .setDescription(`Stock removido exitosamente`)
-        .addFields(
-          { name: '📦 Producto', value: product.name, inline: false },
-          { name: '🎮 Variante', value: variant.name, inline: false },
-          { name: '📊 Items Removidos', value: quantity.toString(), inline: true },
-          { name: '📈 Stock Restante', value: deliverablesArray.length.toString(), inline: true }
-        )
-        .setFooter({ text: `Timestamp: ${new Date().toLocaleTimeString()}` });
+        .setTitle(`✅ Items Extraídos`)
+        .addField('🏪 Producto', productData.productName, true)
+        .addField('🎮 Variante', variantData.name, true)
+        .addField('📦 Cantidad', quantity.toString(), true)
+        .addField('📊 Stock Restante', remainingStock.toString(), true);
 
-      // Add all items to embed, potentially split across multiple embeds
-      let currentItemsList = '';
-      let itemsEmbeds = [];
-      
-      for (let i = 0; i < removedItems.length; i++) {
-        const line = `${i + 1}. ${removedItems[i]}\n`;
-        
-        if (currentItemsList.length + line.length < 1020) {
-          currentItemsList += line;
-        } else {
-          // Save current embed and start new one
-          if (currentItemsList) {
-            itemsEmbeds.push(currentItemsList);
-          }
-          currentItemsList = line;
-        }
+      let itemsText = '';
+      for (let i = 0; i < Math.min(removedItems.length, 5); i++) {
+        itemsText += `${i + 1}. ${removedItems[i].substring(0, 80)}\n`;
       }
-      
-      // Add last chunk
-      if (currentItemsList) {
-        itemsEmbeds.push(currentItemsList);
+      if (removedItems.length > 5) {
+        itemsText += `\n... y ${removedItems.length - 5} items más`;
       }
 
-      // Add items to main embed or create additional embeds
-      if (itemsEmbeds.length === 1) {
-        mainEmbed.addFields({ name: '📋 Items', value: itemsEmbeds[0], inline: false });
-        embeds.push(mainEmbed);
-      } else if (itemsEmbeds.length > 1) {
-        mainEmbed.addFields({ name: '📋 Items (Part 1)', value: itemsEmbeds[0], inline: false });
-        embeds.push(mainEmbed);
-        
-        for (let i = 1; i < itemsEmbeds.length; i++) {
-          const partEmbed = new EmbedBuilder()
-            .setColor(0x00AA00)
-            .addFields({ name: `📋 Items (Part ${i + 1})`, value: itemsEmbeds[i], inline: false })
-            .setFooter({ text: `Timestamp: ${new Date().toLocaleTimeString()}` });
-          embeds.push(partEmbed);
-        }
-      } else {
-        mainEmbed.addFields({ name: '📋 Items', value: 'Sin items', inline: false });
-        embeds.push(mainEmbed);
-      }
+      embed.addField('📋 Items Extraídos', itemsText, false);
 
-      await interaction.editReply({ embeds: embeds });
+      await interaction.editReply({ embeds: [embed] });
 
     } catch (error) {
-      await interaction.editReply({ 
-        content: `❌ Error: ${error.message}` 
-      });
+      console.error('[REPLACE] Error:', error);
+      try {
+        await interaction.editReply({ 
+          content: `❌ Error: ${error.message}` 
+        });
+      } catch (e) {
+        console.error('[REPLACE] Could not send error message:', e.message);
+      }
     }
   }
 };
