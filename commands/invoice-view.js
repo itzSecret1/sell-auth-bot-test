@@ -165,68 +165,108 @@ export default {
           return;
         }
 
-        // Build invoice embed with ALL available data
+        // Build invoice embed with REAL data from invoice structure
         const embed = new EmbedBuilder()
           .setColor(0x0099ff)
           .setTitle('📋 DETALLES DEL INVOICE')
-          .setDescription(`Invoice: \`${cleanId}\``);
+          .setDescription(`**Invoice:** \`${cleanId}\`\n**Numeric ID:** ${invoiceData.id}`);
 
-        // Add all available fields
-        if (invoiceData.product_name || invoiceData.product) {
+        // Extract real data from items array
+        const itemsList = invoiceData.items || [];
+        let productsText = '';
+        if (itemsList.length > 0) {
+          productsText = itemsList.map(item => {
+            const productName = item.product?.name || 'Unknown';
+            const variantName = item.variant?.name || '';
+            return `⊙ ${productName}${variantName ? ` (${variantName})` : ''}`;
+          }).join('\n');
+        } else {
+          productsText = 'No items found';
+        }
+
+        if (productsText) {
           embed.addFields({
-            name: '🛍️ Producto',
-            value: (invoiceData.product_name || invoiceData.product).substring(0, 100),
-            inline: true
+            name: '🛍️ Productos / Items',
+            value: productsText.substring(0, 1024),
+            inline: false
           });
         }
 
-        if (invoiceData.amount) {
+        // Amount/Price information
+        const price = invoiceData.price || invoiceData.paid || 'N/A';
+        const currency = invoiceData.currency || 'USD';
+        if (price && price !== 'N/A') {
           embed.addFields({
             name: '💰 Monto',
-            value: `$${invoiceData.amount}`,
+            value: `${price} ${currency}`,
             inline: true
           });
         }
 
+        // Paid amount
+        const paidAmount = invoiceData.paid || invoiceData.price || 'N/A';
+        if (paidAmount && paidAmount !== 'N/A') {
+          embed.addFields({
+            name: '✅ Pagado',
+            value: `${paidAmount} ${currency}`,
+            inline: true
+          });
+        }
+
+        // Creation date
         if (invoiceData.created_at) {
+          const dateStr = new Date(invoiceData.created_at).toLocaleString('es-ES', {
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit'
+          });
           embed.addFields({
             name: '📅 Fecha Creación',
-            value: invoiceData.created_at.substring(0, 10),
+            value: dateStr,
             inline: true
           });
         }
 
+        // Status
         if (invoiceData.status) {
+          const statusEmoji = invoiceData.status === 'completed' ? '✅' : 
+                              invoiceData.status === 'pending' ? '⏳' : '❓';
           embed.addFields({
-            name: '✅ Estado',
-            value: invoiceData.status.toUpperCase(),
+            name: '📊 Estado',
+            value: `${statusEmoji} ${invoiceData.status.toUpperCase()}`,
             inline: true
           });
         }
 
-        if (invoiceData.order_id) {
+        // Email / Customer
+        if (invoiceData.email) {
           embed.addFields({
-            name: '📦 Order ID',
-            value: invoiceData.order_id.toString(),
+            name: '👤 Email Cliente',
+            value: invoiceData.email,
             inline: true
           });
         }
 
-        if (invoiceData.customer_name || invoiceData.customer_email) {
-          const customerInfo = `${invoiceData.customer_name || 'N/A'} (${invoiceData.customer_email || 'N/A'})`;
+        // Payment Method
+        if (invoiceData.payment_method) {
+          const methodName = invoiceData.payment_method.name || 'Unknown';
+          const gateway = invoiceData.gateway || 'N/A';
           embed.addFields({
-            name: '👤 Cliente',
-            value: customerInfo.substring(0, 100),
-            inline: false
+            name: '💳 Método de Pago',
+            value: `${methodName} (${gateway})`,
+            inline: true
           });
         }
 
-        if (invoiceData.notes || invoiceData.description) {
-          const notes = (invoiceData.notes || invoiceData.description).substring(0, 200);
+        // Country/IP Info (additional context)
+        const countryCode = invoiceData.country_code || 'N/A';
+        if (countryCode && countryCode !== 'N/A') {
           embed.addFields({
-            name: '📝 Notas',
-            value: notes,
-            inline: false
+            name: '🌍 País',
+            value: countryCode,
+            inline: true
           });
         }
 
@@ -236,16 +276,21 @@ export default {
         await interaction.editReply({ embeds: [embed] });
 
         const executionTime = Date.now() - startTime;
+        
+        // Prepare metadata for logging
+        const itemNames = itemsList.map(i => i.product?.name || 'Unknown').join(', ');
         await AdvancedCommandLogger.logCommand(interaction, 'invoice-view', {
           status: 'EXECUTED',
           result: `Invoice found successfully`,
           executionTime,
           metadata: {
             'Invoice ID': cleanId,
-            'Product': invoiceData.product_name || 'N/A',
-            'Amount': `$${invoiceData.amount || 0}`,
+            'Numeric ID': invoiceData.id.toString(),
+            'Items': itemNames || 'None',
+            'Amount': `${invoiceData.price || 'N/A'} ${invoiceData.currency || 'USD'}`,
             'Status': invoiceData.status || 'Unknown',
-            'Found': 'YES'
+            'Email': invoiceData.email || 'N/A',
+            'Payment Method': invoiceData.payment_method?.name || 'N/A'
           }
         });
 
