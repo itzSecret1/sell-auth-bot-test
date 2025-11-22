@@ -20,20 +20,29 @@ The bot operates with a modular command-based structure, where each command is a
 - **Balance Management:** Add or remove customer balance directly via `/balance-add` and `/balance-remove` (admin only).
 - **Channel Management:** Bulk delete messages via `/clear` command (admin only) - supports up to 100 messages per execution.
 - **Server Backup System:** Anti-raid protection with `/backup`, `/loadbackup`, and `/listbackup` commands. Automatically saves roles, channels, permissions with date-stamped backups.
+- **Audit Logging System:** Comprehensive server monitoring with `/audit` command - tracks role changes, channel modifications, member actions, and configuration updates. Stores up to 500 audit entries per guild.
+- **Server Configuration:** `/config` command for managing server settings, protecting critical roles, and configuring audit logging. Persistent storage of important configurations.
+- **Role Protection System:** Protect important roles from deletion or unauthorized modification with detailed reason tracking.
+- **System Monitoring:** `/status` command displays bot performance, uptime, memory usage, CPU usage, and network latency. `/role-info` provides detailed role statistics and member counts.
 - **Anti-Spam System:** Professional rate limiting - automatically isolates users for 3 days if they execute 5+ replaces within 1-3 seconds (owner exempt). Includes timeout tracking and detailed logging.
-- **Advanced Logging:** Professional command tracking with detailed metadata, execution times, status, and error context. Logs are outputted to Discord embeds, a persistent JSON file (`commandLog.json`), and the console.
+- **Advanced Logging:** Professional command tracking with detailed metadata, execution times, status, and error context. Logs are outputted to Discord embeds, persistent JSON files, and the console.
 - **Error Monitoring:** Automatic logging of errors with context to `errorLog.json`, tracking up to 100 recent errors for debugging.
+- **Permission Validation:** Built-in permission checking before executing sensitive operations, ensuring bot has required Discord permissions.
 - **Ultra-Fast Responses:** All commands respond within 1 second to avoid Discord timeouts using the `quickResponse.js` utility.
 
 **System Design Choices:**
-- **Modular Command Structure:** Commands are isolated in the `commands/` directory for easy management and scalability (13 commands total).
+- **Modular Command Structure:** Commands are isolated in the `commands/` directory for easy management and scalability (17 commands total: stock, replace, unreplace, sync-variants, invoice-view, balance-add, balance-remove, clear, backup, loadbackup, listbackup, help, stats, status, role-info, audit, config).
 - **Centralized API Client:** A dedicated `Api.js` class encapsulates all interactions with the SellAuth API, promoting reusability and maintainability.
 - **Robust Error Handling:** Implemented across all API interactions and command executions to ensure system stability and provide clear feedback on issues.
-- **Persistent Data Storage:** Key data like product variants, replace history, logs, and server backups are stored in JSON files for persistence and quick access.
+- **Persistent Data Storage:** Key data like product variants, replace history, logs, backups, and audit entries are stored in JSON files for persistence and quick access.
 - **Comprehensive ID Search:** Invoice lookup supports multiple ID fields (`id`, `unique_id`, `invoice_id`, `reference_id`) and pagination for thorough searching.
 - **Professional Rate Limiting:** Dedicated `rateLimiter.js` utility tracks user actions, detects spam patterns (5+ actions in 1-3 seconds), and applies automatic 3-day timeouts with real-time duration tracking.
-- **Backup System:** `BackupManager.js` handles server state snapshots including roles, channels, permissions, and bot configurations with date-stamped storage.
+- **Backup System:** `BackupManager.js` handles server state snapshots including roles, channels, permissions with date-stamped storage and verification.
+- **Audit Logging System:** `AuditLogger.js` tracks all significant server events with timestamps, event types, and detailed metadata. Supports filtering by event type and time range.
+- **Server Configuration:** `ServerConfig.js` manages persistent server settings, protected roles, audit channel assignments, and feature toggles per guild.
+- **Permission Validation:** `PermissionValidator.js` ensures bot has required Discord permissions before executing sensitive operations, providing detailed permission reports.
 - **Performance Optimization:** `quickResponse.js` ensures all commands respond within Discord's 3-second timeout by using immediate acknowledgment with background processing.
+- **Scalable Architecture:** Supports multiple servers simultaneously with isolated configurations, audit logs, and backups per guild.
 
 ## External Dependencies
 - **Discord API:** For bot interactions, commands, and sending messages/embeds.
