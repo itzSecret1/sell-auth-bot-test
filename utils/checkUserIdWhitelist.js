@@ -19,7 +19,8 @@ export async function checkUserIdWhitelist(command, interaction, config) {
     }
 
     // Fallback to old whitelist system (for backwards compatibility)
-    return config.BOT_USER_ID_WHITELIST.includes(userId);
+    const whitelist = config.BOT_USER_ID_WHITELIST || [];
+    return Array.isArray(whitelist) && whitelist.includes(userId);
   }
 
   return true;
