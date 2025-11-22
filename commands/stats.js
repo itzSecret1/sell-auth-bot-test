@@ -10,7 +10,7 @@ export default {
   onlyWhitelisted: true,
   requiredRole: 'staff',
 
-  async execute(interaction) {
+  async execute(interaction, api) {
     // Use quick reply to ensure response within 3 seconds
     await quickReply(interaction, async () => {
       const startTime = Date.now();
