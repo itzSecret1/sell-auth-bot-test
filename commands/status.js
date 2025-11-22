@@ -8,7 +8,7 @@ export default {
     .setName('status')
     .setDescription('View bot system status and performance'),
 
-  async execute(interaction) {
+  async execute(interaction, api) {
     await quickReply(interaction, async () => {
       const startTime = Date.now();
       try {
