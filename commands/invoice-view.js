@@ -16,7 +16,7 @@ export default {
   onlyWhitelisted: true,
   requiredRole: 'staff',
 
-  async execute(interaction) {
+  async execute(interaction, api) {
     const startTime = Date.now();
     try {
       await interaction.deferReply({ ephemeral: true });
@@ -53,8 +53,7 @@ export default {
       }
 
       try {
-        // Search invoice via API - using correct endpoint pattern from sync-variants
-        const api = new Api();
+        // Search invoice via API - using api parameter from execute
         console.log(`[INVOICE-VIEW] Searching for invoice ID: "${cleanId}"`);
 
         let invoiceData = null;
