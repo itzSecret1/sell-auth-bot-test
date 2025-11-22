@@ -2,6 +2,7 @@ import { SlashCommandBuilder, EmbedBuilder } from 'discord.js';
 import { loadVariantsData } from '../utils/dataLoader.js';
 import { ErrorLog } from '../utils/errorLogger.js';
 import { Api } from '../classes/Api.js';
+import { CommandLogger } from '../utils/commandLogger.js';
 
 export default {
   data: new SlashCommandBuilder()
@@ -18,6 +19,7 @@ export default {
 
   async execute(interaction) {
     try {
+      await CommandLogger.logCommand(interaction, 'invoice-view');
       const inputId = interaction.options.getString('id');
 
       try {
