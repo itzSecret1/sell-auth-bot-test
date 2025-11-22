@@ -244,24 +244,9 @@ export default {
 
         addToHistory(product.id, product.name, removedItems, variant.id, variant.name);
 
-        // Build items list with character limit in mind (embed field limit is ~1024 chars)
-        let itemsList = '';
-        let displayedCount = 0;
-        
-        for (let i = 0; i < removedItems.length; i++) {
-          const line = `${i + 1}. ${removedItems[i]}\n`;
-          if (itemsList.length + line.length < 1000) {
-            itemsList += line;
-            displayedCount++;
-          } else {
-            const remaining = removedItems.length - displayedCount;
-            itemsList += `\n... y ${remaining} más`;
-            break;
-          }
-        }
-
-        // Create embed
-        const embed = new EmbedBuilder()
+        // Build items list - split into multiple fields if too long
+        const embeds = [];
+        const mainEmbed = new EmbedBuilder()
           .setColor(0x00AA00)
           .setTitle('✅ REPLACE COMPLETADO')
           .setDescription(`Stock removido exitosamente`)
@@ -269,12 +254,54 @@ export default {
             { name: '📦 Producto', value: product.name, inline: false },
             { name: '🎮 Variante', value: variant.name, inline: false },
             { name: '📊 Items Removidos', value: quantity.toString(), inline: true },
-            { name: '📈 Stock Restante', value: deliverablesArray.length.toString(), inline: true },
-            { name: '📋 Items', value: itemsList || 'Sin items', inline: false }
+            { name: '📈 Stock Restante', value: deliverablesArray.length.toString(), inline: true }
           )
           .setFooter({ text: `Timestamp: ${new Date().toLocaleTimeString()}` });
 
-        await interaction.editReply({ embeds: [embed] });
+        // Add all items to embed, potentially split across multiple embeds
+        let currentItemsList = '';
+        let itemsEmbeds = [];
+        
+        for (let i = 0; i < removedItems.length; i++) {
+          const line = `${i + 1}. ${removedItems[i]}\n`;
+          
+          if (currentItemsList.length + line.length < 1020) {
+            currentItemsList += line;
+          } else {
+            // Save current embed and start new one
+            if (currentItemsList) {
+              itemsEmbeds.push(currentItemsList);
+            }
+            currentItemsList = line;
+          }
+        }
+        
+        // Add last chunk
+        if (currentItemsList) {
+          itemsEmbeds.push(currentItemsList);
+        }
+
+        // Add items to main embed or create additional embeds
+        if (itemsEmbeds.length === 1) {
+          mainEmbed.addFields({ name: '📋 Items', value: itemsEmbeds[0], inline: false });
+          embeds.push(mainEmbed);
+        } else if (itemsEmbeds.length > 1) {
+          mainEmbed.addFields({ name: '📋 Items (Part 1)', value: itemsEmbeds[0], inline: false });
+          embeds.push(mainEmbed);
+          
+          for (let i = 1; i < itemsEmbeds.length; i++) {
+            const partEmbed = new EmbedBuilder()
+              .setColor(0x00AA00)
+              .addFields({ name: `📋 Items (Part ${i + 1})`, value: itemsEmbeds[i], inline: false })
+              .setFooter({ text: `Timestamp: ${new Date().toLocaleTimeString()}` });
+            embeds.push(partEmbed);
+          }
+        } else {
+          mainEmbed.addFields({ name: '📋 Items', value: 'Sin items', inline: false });
+          embeds.push(mainEmbed);
+        }
+
+        await interaction.editReply({ embeds: embeds });
       } else {
         await interaction.editReply({
           content: `❌ No se pudieron obtener los items del stock en este momento. Intenta de nuevo.`
