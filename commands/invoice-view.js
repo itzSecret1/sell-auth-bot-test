@@ -53,33 +53,67 @@ export default {
       }
 
       try {
-        // Search invoice via API
+        // Search invoice via API - using correct endpoint pattern from sync-variants
         const api = new Api();
-        const encodedId = encodeURIComponent(cleanId);
-        console.log(`[INVOICE-VIEW] API call: invoices/${encodedId}`);
+        console.log(`[INVOICE-VIEW] Searching for invoice ID: "${cleanId}"`);
 
         let invoiceData = null;
-        try {
-          invoiceData = await api.get(`invoices/${encodedId}`);
-          console.log(`[INVOICE-VIEW] API Response:`, invoiceData);
-        } catch (apiError) {
-          console.error(`[INVOICE-VIEW] API error:`, apiError);
-          throw apiError;
+        let foundOnPage = false;
+
+        // Paginate through invoices to find matching ID
+        for (let page = 1; page <= 10; page++) {
+          try {
+            console.log(`[INVOICE-VIEW] API call: shops/${api.shopId}/invoices - page ${page}`);
+            const response = await api.get(`shops/${api.shopId}/invoices?limit=250&page=${page}`);
+            
+            // Handle both array and object responses
+            const invoicesList = Array.isArray(response) ? response : response?.data || [];
+            console.log(`[INVOICE-VIEW] Page ${page}: ${invoicesList.length} invoices`);
+
+            if (invoicesList.length === 0) {
+              console.log(`[INVOICE-VIEW] No more invoices found - stopping search`);
+              break;
+            }
+
+            // Search for invoice by ID in current page
+            const found = invoicesList.find(inv => {
+              // Check multiple possible ID fields
+              return inv.id === cleanId || 
+                     inv.invoice_id === cleanId || 
+                     inv.reference_id === cleanId ||
+                     (inv.id && inv.id.toString() === cleanId);
+            });
+
+            if (found) {
+              invoiceData = found;
+              foundOnPage = true;
+              console.log(`[INVOICE-VIEW] ✅ Invoice found on page ${page}`);
+              break;
+            }
+          } catch (apiError) {
+            console.error(`[INVOICE-VIEW] Error fetching page ${page}:`, apiError.message);
+            if (apiError.status === 429) {
+              // Rate limited - stop search
+              throw apiError;
+            }
+            // Continue to next page on other errors
+          }
         }
 
         // Check if invoice was found
-        if (!invoiceData) {
+        if (!invoiceData || !foundOnPage) {
           await interaction.editReply({
             content: `❌ Invoice **no encontrado**: \`${cleanId}\`\n\n💡 Verifica:\n  • El ID sea correcto\n  • El invoice exista en el sistema SellAuth\n  • Contacta al admin si el problema persiste`
           });
 
           await AdvancedCommandLogger.logCommand(interaction, 'invoice-view', {
             status: 'EXECUTED',
-            result: `Invoice not found`,
+            result: `Invoice not found after searching pages`,
             executionTime: Date.now() - startTime,
             metadata: {
               'Invoice ID': cleanId,
-              'Result': 'Not Found'
+              'Result': 'Not Found',
+              'Pages Searched': '10'
             }
           });
           return;
@@ -88,7 +122,7 @@ export default {
         // Check if response is empty object
         if (typeof invoiceData === 'object' && Object.keys(invoiceData).length === 0) {
           await interaction.editReply({
-            content: `❌ Invoice vacío o no encontrado: \`${cleanId}\``
+            content: `❌ Invoice vacío o incompleto: \`${cleanId}\``
           });
 
           await AdvancedCommandLogger.logCommand(interaction, 'invoice-view', {
