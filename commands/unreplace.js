@@ -3,6 +3,7 @@ import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { join } from 'path';
 
 const historyFilePath = join(process.cwd(), 'replaceHistory.json');
+const variantsDataPath = join(process.cwd(), 'variantsData.json');
 
 let historyData = [];
 
@@ -12,6 +13,17 @@ if (existsSync(historyFilePath)) {
 
 function saveHistory() {
   writeFileSync(historyFilePath, JSON.stringify(historyData, null, 2));
+}
+
+function loadVariantsData() {
+  if (existsSync(variantsDataPath)) {
+    try {
+      return JSON.parse(readFileSync(variantsDataPath, 'utf-8'));
+    } catch (e) {
+      return {};
+    }
+  }
+  return {};
 }
 
 export default {
@@ -72,18 +84,51 @@ export default {
             deliverablesArray = deliverablesData.split('\n').filter(item => item.trim());
           } else if (deliverablesData?.deliverables && typeof deliverablesData.deliverables === 'string') {
             deliverablesArray = deliverablesData.deliverables.split('\n').filter(item => item.trim());
+          } else if (deliverablesData?.content && typeof deliverablesData.content === 'string') {
+            deliverablesArray = deliverablesData.content.split('\n').filter(item => item.trim());
           } else if (Array.isArray(deliverablesData)) {
-            deliverablesArray = deliverablesData.filter(item => item && item.trim?.());
+            deliverablesArray = deliverablesData.map(item => {
+              if (typeof item === 'string') return item.trim();
+              if (typeof item === 'object' && item?.value) return item.value;
+              return String(item).trim();
+            }).filter(item => item);
+          } else if (deliverablesData?.items && Array.isArray(deliverablesData.items)) {
+            deliverablesArray = deliverablesData.items.map(item => {
+              if (typeof item === 'string') return item.trim();
+              if (typeof item === 'object' && item?.value) return item.value;
+              return String(item).trim();
+            }).filter(item => item);
           }
 
           // Restore the actual removed items
           const restoredArray = [...removedItems, ...deliverablesArray];
           const newDeliverablesString = restoredArray.join('\n');
+          const newStock = restoredArray.length;
           
-          await api.put(
-            `shops/${api.shopId}/products/${productId}/deliverables/overwrite/${variantId}`,
-            { deliverables: newDeliverablesString }
-          );
+          // Update API
+          try {
+            await api.put(
+              `shops/${api.shopId}/products/${productId}/deliverables/overwrite/${variantId}`,
+              { deliverables: newDeliverablesString }
+            );
+            console.log(`[UNREPLACE] API updated: ${productId}/${variantId}`);
+          } catch (putError) {
+            console.error(`[UNREPLACE] API PUT failed: ${putError.message}`);
+            throw putError;
+          }
+
+          // Update cache ONLY after successful API update
+          try {
+            const variantsData = loadVariantsData();
+            if (variantsData[productId.toString()]?.variants[variantId.toString()]) {
+              variantsData[productId.toString()].variants[variantId.toString()].stock = newStock;
+              writeFileSync(variantsDataPath, JSON.stringify(variantsData, null, 2));
+              console.log(`[UNREPLACE CACHE] Updated: ${productId}/${variantId} - New stock: ${newStock}`);
+            }
+          } catch (cacheError) {
+            console.error(`[UNREPLACE] Cache update error: ${cacheError.message}`);
+            // Don't fail - API was already updated
+          }
 
           restoredInfo.push({
             product: productName,
