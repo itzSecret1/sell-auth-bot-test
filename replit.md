@@ -66,11 +66,11 @@ Preferred communication style: Simple, everyday language.
 **Implementation Details**:
 - Centralized API client with base URL and authentication headers
 - Methods for GET, POST, PUT, and DELETE operations
-- Uses `node-fetch` for HTTP requests
+- Uses `axios` for HTTP requests (replaced `node-fetch` for better compatibility with Railway)
 - API credentials (API key and shop ID) loaded from environment configuration
 - Error handling throws objects with response details
 
-**Pros**: Single source of truth for API communication, easy to mock for testing
+**Pros**: Single source of truth for API communication, easy to mock for testing, stable on Railway
 **Cons**: Limited error handling, no retry logic
 
 ### Event-Driven Architecture
@@ -145,9 +145,10 @@ Preferred communication style: Simple, everyday language.
   - `SA_SHOP_ID` - SellAuth shop identifier
 
 ### HTTP Client
-- **Library**: node-fetch v3.3.2
-- **Purpose**: Make HTTP requests to SellAuth API
-- **Usage**: All API requests in `Api` class
+- **Library**: axios v1.7.7
+- **Purpose**: Make HTTP requests to SellAuth API and Replit connectors
+- **Usage**: All API requests in `Api` class and GitHub token fetching in `gitAutoSync.js`
+- **Note**: Replaced `node-fetch` to fix Railway deployment compatibility issues with ReadableStream
 
 ### File System
 - **Module**: Node.js built-in `fs` module
@@ -158,7 +159,39 @@ Preferred communication style: Simple, everyday language.
 - **nodemon** v2.0.22 - Auto-restart during development
 - **prettier** v3.3.1 - Code formatting
 
-## Recent Changes (Nov 21, 2025)
+## Recent Changes (Nov 22, 2025)
+
+### Autocomplete Performance Optimization
+- **Fixed Autocomplete Timeout**: Bot now loads cached variants data immediately on startup
+- Removed blocking behavior where initial auto-sync prevented autocomplete from responding
+- Implemented batch processing for API calls (5 concurrent limit) to prevent overwhelming the server
+- Background sync runs asynchronously without blocking Discord commands
+- Variants data loads instantly from cache while background sync refreshes in the background
+
+### Real-Time Stock Accuracy Fix
+- **Fixed Stock Display Bug**: Changed auto-sync to fetch REAL stock from `/deliverables` endpoint instead of `product.variants.stock`
+- Previous method showed outdated/cached stock that didn't match actual inventory
+- `/replace` command now shows accurate remaining stock after removing items
+- Each variant gets real-time item count from SellAuth deliverables system
+- variantsData.json now contains live inventory data for accurate autocomplete display
+
+### Auto-Sync Interval Optimization (1s → 30s)
+- **Fixed Discord Timeout Errors**: Reduced auto-sync interval from 1 second to 30 seconds
+- Previous 1-second interval was causing 60 requests/minute to SellAuth API, blocking Node.js event loop
+- Eliminated "DiscordAPIError[10062]: Unknown interaction" timeout errors
+- Eliminated "Error: Invalid response" intermittent failures
+- Commands now respond within Discord's 3-second timeout requirement
+- Bot remains fully synchronized with variant data, just updates less frequently
+
+### HTTP Client Migration (node-fetch → axios)
+- **Fixed Railway Deployment Crash**: Replaced `node-fetch` v3 with `axios` for better Node.js compatibility
+- Updated `classes/Api.js` to use axios for all SellAuth API requests
+- Updated `utils/gitAutoSync.js` to use axios for Replit connector API requests
+- Eliminated `ReferenceError: ReadableStream is not defined` that was preventing Railway deployment
+- Bot now successfully runs 24/7 on Railway without crashes
+- All changes automatically synced to GitHub via gitAutoSync
+
+### Previous Changes (Nov 21, 2025)
 
 ### Variants System Implementation
 - Created `/sync-variants` command (admin only) for discovering and caching all product variants
