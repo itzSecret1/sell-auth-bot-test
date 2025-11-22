@@ -1,4 +1,4 @@
-import fetch from 'node-fetch';
+import axios from 'axios';
 import { config } from '../utils/config.js';
 
 export class Api {
@@ -9,61 +9,52 @@ export class Api {
   }
 
   async get(endpoint) {
-    const response = await fetch(`${this.baseUrl}${endpoint}`, {
-      headers: { Authorization: `Bearer ${this.apiKey}` }
-    });
-
-    if (!response.ok) {
-      throw { message: 'Invalid response', response };
+    try {
+      const response = await axios.get(`${this.baseUrl}${endpoint}`, {
+        headers: { Authorization: `Bearer ${this.apiKey}` }
+      });
+      return response.data;
+    } catch (error) {
+      throw { message: 'Invalid response', error: error.message };
     }
-
-    return await response.json();
   }
 
   async post(endpoint, data) {
-    const response = await fetch(`${this.baseUrl}${endpoint}`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${this.apiKey}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(data)
-    });
-
-    if (!response.ok) {
-      throw { message: 'Invalid response', response };
+    try {
+      const response = await axios.post(`${this.baseUrl}${endpoint}`, data, {
+        headers: {
+          Authorization: `Bearer ${this.apiKey}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      return response.data;
+    } catch (error) {
+      throw { message: 'Invalid response', error: error.message };
     }
-
-    return await response.json();
   }
 
   async put(endpoint, data) {
-    const response = await fetch(`${this.baseUrl}${endpoint}`, {
-      method: 'PUT',
-      headers: {
-        Authorization: `Bearer ${this.apiKey}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(data)
-    });
-
-    if (!response.ok) {
-      throw { message: 'Invalid response', response };
+    try {
+      const response = await axios.put(`${this.baseUrl}${endpoint}`, data, {
+        headers: {
+          Authorization: `Bearer ${this.apiKey}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      return response.data;
+    } catch (error) {
+      throw { message: 'Invalid response', error: error.message };
     }
-
-    return await response.json();
   }
 
   async delete(endpoint) {
-    const response = await fetch(`${this.baseUrl}${endpoint}`, {
-      method: 'DELETE',
-      headers: { Authorization: `Bearer ${this.apiKey}` }
-    });
-
-    if (!response.ok) {
-      throw { message: 'Invalid response', response };
+    try {
+      const response = await axios.delete(`${this.baseUrl}${endpoint}`, {
+        headers: { Authorization: `Bearer ${this.apiKey}` }
+      });
+      return response.data;
+    } catch (error) {
+      throw { message: 'Invalid response', error: error.message };
     }
-
-    return await response.json();
   }
 }
