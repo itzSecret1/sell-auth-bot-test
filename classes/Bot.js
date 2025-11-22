@@ -22,7 +22,8 @@ export class Bot {
     this.cooldowns = new Collection();
     this.queues = new Collection();
 
-    this.client.login(config.BOT_TOKEN);
+    // Login with retry logic for Discord rate limits
+    this.loginWithRetry();
 
     this.client.on('ready', () => {
       console.log(`${this.client.user.username} ready!`);
@@ -31,9 +32,32 @@ export class Bot {
     });
 
     this.client.on('warn', (info) => console.log(info));
-    this.client.on('error', console.error);
+    this.client.on('error', (error) => {
+      console.error('[BOT ERROR]', error.message);
+      if (error.message && error.message.includes('Not enough sessions')) {
+        console.warn('[BOT] Discord session limit reached. Retrying in 30 seconds...');
+        setTimeout(() => this.loginWithRetry(), 30000);
+      }
+    });
 
     this.onInteractionCreate();
+  }
+
+  async loginWithRetry(attempt = 1) {
+    const maxAttempts = 5;
+    try {
+      console.log(`[BOT LOGIN] Attempt ${attempt}/${maxAttempts}`);
+      await this.client.login(config.BOT_TOKEN);
+    } catch (error) {
+      console.error(`[BOT LOGIN ERROR] ${error.message}`);
+      if (attempt < maxAttempts && error.message && error.message.includes('Not enough sessions')) {
+        const delay = Math.min(30000 * attempt, 120000); // Max 2 minutes
+        console.log(`[BOT LOGIN] Retrying in ${delay / 1000} seconds...`);
+        setTimeout(() => this.loginWithRetry(attempt + 1), delay);
+      } else if (attempt >= maxAttempts) {
+        console.error(`[BOT LOGIN] Max retries reached. Please check Discord API status or wait for session reset.`);
+      }
+    }
   }
 
   async registerSlashCommands() {
