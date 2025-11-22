@@ -41,7 +41,7 @@ export class Bot {
 
   async loginWithRetry(attempt = 1) {
     try {
-      console.log(`[BOT LOGIN] Connecting to Discord...`);
+      console.log(`[BOT LOGIN] Connecting to Discord... (Attempt ${attempt})`);
       await this.client.login(config.BOT_TOKEN);
     } catch (error) {
       if (error.message && error.message.includes('Not enough sessions')) {
@@ -54,13 +54,25 @@ export class Bot {
         console.error(`   Reason: Too many connection attempts in short time`);
         console.error(`   Solution: Wait for Discord to reset sessions (usually within 1 hour)\n`);
         
-        // Only retry once after 5 minutes to avoid making it worse
-        if (attempt === 1) {
-          console.log(`[BOT LOGIN] Will retry in 5 minutes...`);
-          setTimeout(() => this.loginWithRetry(2), 5 * 60 * 1000);
+        // Retry with exponential backoff: 10 min, 20 min, 30 min
+        let waitTime = 10 * 60 * 1000; // 10 minutes
+        if (attempt === 2) waitTime = 20 * 60 * 1000; // 20 minutes
+        if (attempt === 3) waitTime = 30 * 60 * 1000; // 30 minutes
+        
+        if (attempt <= 3) {
+          const waitMinutes = Math.round(waitTime / 60 / 1000);
+          console.log(`[BOT LOGIN] Will retry in ${waitMinutes} minutes (Attempt ${attempt + 1}/3)...`);
+          setTimeout(() => this.loginWithRetry(attempt + 1), waitTime);
+        } else {
+          console.error(`[BOT LOGIN] Max retries reached. Please restart the bot manually.`);
         }
       } else {
         console.error(`[BOT LOGIN ERROR] ${error.message}`);
+        // Retry on other errors after 30 seconds
+        if (attempt <= 5) {
+          console.log(`[BOT LOGIN] Retrying in 30 seconds...`);
+          setTimeout(() => this.loginWithRetry(attempt + 1), 30 * 1000);
+        }
       }
     }
   }
@@ -135,7 +147,7 @@ export class Bot {
 
       try {
         if (await checkUserIdWhitelist(command, interaction, config)) {
-          command.execute(interaction, this.api);
+          await command.execute(interaction, this.api);
         } else {
           throw new NotWhitelistedException();
         }
