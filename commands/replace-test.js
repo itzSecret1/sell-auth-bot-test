@@ -194,6 +194,9 @@ export default {
       const debug = await getVariantStockWithDebug(api, product.id, variant.id, product.name, variant.name);
 
       // Build debug embed
+      const debugStepsText = debug.steps.slice(0, 8).map(s => `• ${s}`).join('\n');
+      const hasMoreSteps = debug.steps.length > 8;
+      
       const embed = new EmbedBuilder()
         .setColor(0x00AAFF)
         .setTitle('🔧 REPLACE TEST - DEBUG INFO')
@@ -217,28 +220,37 @@ export default {
             name: '🔍 API Real Stock', 
             value: `${debug.itemCount || 0} items`, 
             inline: true 
-          },
-          {
-            name: '🐛 Debug Steps',
-            value: debug.steps.map(s => `• ${s}`).join('\n'),
-            inline: false
           }
         );
+
+      // Add debug steps, truncated if needed
+      const stepsDisplay = debugStepsText + (hasMoreSteps ? '\n... (more steps)' : '');
+      embed.addFields({
+        name: '🐛 Debug Steps',
+        value: stepsDisplay || 'No steps',
+        inline: false
+      });
 
       if (debug.error) {
         embed.addFields({
           name: '❌ Error',
-          value: debug.error,
+          value: debug.error.substring(0, 1024),
           inline: false
         });
       }
 
-      if (debug.items && debug.items.length > 0) {
-        const itemsList = debug.items.slice(0, 10).map((item, i) => `${i + 1}. \`${item}\``).join('\n');
-        const remaining = debug.items.length > 10 ? `\n... and ${debug.items.length - 10} more` : '';
+      // Only show items if available and not too many
+      if (debug.items && debug.items.length > 0 && debug.items.length <= 20) {
+        const itemsList = debug.items.slice(0, 5).map((item, i) => `${i + 1}. \`${item.substring(0, 50)}\``).join('\n');
         embed.addFields({
-          name: `📋 First 10 Items (of ${debug.items.length})`,
-          value: itemsList + remaining,
+          name: `📋 Sample Items (${debug.items.length} total)`,
+          value: itemsList,
+          inline: false
+        });
+      } else if (debug.items && debug.items.length > 20) {
+        embed.addFields({
+          name: `📋 Items Found`,
+          value: `${debug.items.length} items (too many to display)`,
           inline: false
         });
       }
