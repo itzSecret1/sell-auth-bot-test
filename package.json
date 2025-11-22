@@ -2,24 +2,29 @@
   "type": "module",
   "name": "sellauth-discord-bot",
   "version": "0.0.1",
-  "description": "A Discord bot for managing SellAuth shops",
+  "description": "A Discord bot for managing SellAuth shops with full product variant support and real-time inventory management",
   "main": "index.js",
-  "author": "SellAuth <sellauthmail@gmail.com>",
+  "author": "SellAuth",
   "private": true,
-  "homepage": "https://github.com/sellauth-com/sellauth-discord-bot",
-  "repository": "github:sellauth-com/sellauth-discord-bot",
-  "bugs": "https://github.com/sellauth-com/sellauth-discord-bot/issues",
+  "license": "MIT",
+  "homepage": "https://github.com/itzSecret1/sell-auth-bot-test",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/itzSecret1/sell-auth-bot-test.git"
+  },
   "engines": {
-    "node": "18.x || 20.x"
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
   },
   "scripts": {
     "dev": "nodemon index.js",
     "start": "node index.js",
-    "format": "npx prettier --write \"**/*.js\" --config .prettierrc"
+    "format": "npx prettier --write \"**/*.js\" --config .prettierrc",
+    "build": "npm ci"
   },
   "dependencies": {
     "@octokit/rest": "^22.0.1",
-    "axios": "^1.13.2",
+    "axios": "^1.7.7",
     "chokidar": "^4.0.3",
     "discord.js": "^14.15.3",
     "dotenv": "^16.4.5"
