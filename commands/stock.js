@@ -17,41 +17,35 @@ function loadVariantsData() {
 
 async function getVariantRealItems(api, productId, variantId) {
   try {
-    console.log(`[STOCK] === FETCHING ITEMS ===`);
-    console.log(`[STOCK] Product: ${productId}, Variant: ${variantId}`);
+    console.log(`[STOCK] Fetching items for product ${productId}, variant ${variantId}`);
     
-    // Fetch from API
+    // Try to fetch items from deliverables endpoint
     const endpoint = `shops/${api.shopId}/products/${productId}/deliverables/${variantId}`;
-    const response = await api.get(endpoint, { page: 1, perPage: 100 });
+    const response = await api.get(endpoint);
     
-    let pageItems = [];
+    let items = [];
     
-    // Parse response - SellAuth may return direct array
+    // Parse response - handle multiple formats
     if (Array.isArray(response)) {
-      pageItems = response;
+      items = response;
     } else if (response?.data && Array.isArray(response.data)) {
-      pageItems = response.data;
+      items = response.data;
     } else if (typeof response === 'string') {
-      pageItems = response
-        .split('\n')
-        .map(line => line.trim())
-        .filter(line => line.length > 0);
+      items = response.split('\n').filter(line => line.trim());
+    } else if (response?.items && Array.isArray(response.items)) {
+      items = response.items;
+    } else if (response?.deliverables) {
+      if (Array.isArray(response.deliverables)) {
+        items = response.deliverables;
+      } else if (typeof response.deliverables === 'string') {
+        items = response.deliverables.split('\n').filter(line => line.trim());
+      }
     }
 
-    // Filter out non-string items
-    const validItems = pageItems
-      .map(item => {
-        if (typeof item === 'string') return item.trim();
-        if (typeof item === 'object' && item?.value) return String(item.value).trim();
-        if (typeof item === 'object' && item?.deliverable) return String(item.deliverable).trim();
-        return null;
-      })
-      .filter(item => item && item.length > 0);
-
-    console.log(`[STOCK] API returned: ${validItems.length} items`);
-    return validItems;
+    console.log(`[STOCK] API returned ${items.length} items`);
+    return items;
   } catch (e) {
-    console.error(`[STOCK] ❌ Error fetching items for ${productId}/${variantId}:`, e.message);
+    console.error(`[STOCK] Error fetching items:`, e.message);
     return [];
   }
 }
@@ -83,56 +77,37 @@ export default {
         if (focusedOption.name === 'product') {
           const variantsData = loadVariantsData();
           const products = Object.values(variantsData)
-            .map(p => ({ 
-              name: p.productName, 
-              id: p.productId 
-            }))
+            .map(p => ({ name: p.productName, id: p.productId }))
             .filter(p => p.name.toLowerCase().includes(focusedOption.value.toLowerCase()))
             .slice(0, 25);
 
-          await interaction.respond(
-            products.map(p => ({ name: p.name, value: p.id.toString() }))
-          );
+          await interaction.respond(products.map(p => ({ name: p.name, value: p.id.toString() })));
           responded = true;
         } 
         else if (focusedOption.name === 'variant') {
           const productInput = interaction.options.getString('product');
-          
           if (!productInput) {
             await interaction.respond([]);
-            responded = true;
             return;
           }
 
           const variantsData = loadVariantsData();
-          const productData = Object.values(variantsData).find(p => 
-            p.productId.toString() === productInput
-          );
+          const productData = Object.values(variantsData).find(p => p.productId.toString() === productInput);
 
-          if (!productData || !productData.variants) {
+          if (!productData?.variants) {
             await interaction.respond([]);
-            responded = true;
             return;
           }
 
           const variants = Object.values(productData.variants)
-            .map(v => ({
-              name: `${v.name} (${v.stock})`,
-              value: v.id.toString()
-            }))
+            .map(v => ({ name: `${v.name} (${v.stock})`, value: v.id.toString() }))
             .slice(0, 25);
 
           await interaction.respond(variants);
           responded = true;
         }
       } catch (e) {
-        if (!responded && interaction.responded === false) {
-          try {
-            await interaction.respond([]);
-          } catch (respondError) {
-            // Silent fail
-          }
-        }
+        if (!responded) await interaction.respond([]).catch(() => {});
       }
     } catch (error) {
       // Silent fail
@@ -141,21 +116,19 @@ export default {
 
   async execute(interaction, api) {
     try {
-      // Quick response to prevent timeout
       if (!interaction.deferred && !interaction.replied) {
         await interaction.deferReply({ ephemeral: true }).catch(() => {});
       }
 
       const productInput = interaction.options.getString('product');
       const variantInput = interaction.options.getString('variant');
-
       const variantsData = loadVariantsData();
 
-      // Case 1: No parameters - show ALL stock
+      // Case 1: No parameters
       if (!productInput && !variantInput) {
         const embeds = [];
         
-        Object.entries(variantsData).forEach(([productId, productData]) => {
+        Object.entries(variantsData).forEach(([, productData]) => {
           const embed = new EmbedBuilder()
             .setColor(0x0099FF)
             .setTitle(`📦 ${productData.productName}`);
@@ -164,12 +137,9 @@ export default {
           let description = '';
           
           for (const v of variants) {
-            const line = `• **${v.name}**: ${v.stock} items\n`;
-            // Discord field limit: 1024 chars
+            const line = `• ${v.name}: ${v.stock} items\n`;
             if ((description + line).length <= 1024) {
               description += line;
-            } else {
-              break;
             }
           }
 
@@ -178,15 +148,11 @@ export default {
         });
 
         if (embeds.length === 0) {
+          const msg = `❌ No hay datos de stock. Ejecuta /sync-variants primero.`;
           if (interaction.deferred || interaction.replied) {
-            await interaction.editReply({
-              content: `❌ No hay datos de stock. Ejecuta /sync-variants primero.`
-            }).catch(() => {});
+            await interaction.editReply({ content: msg }).catch(() => {});
           } else {
-            await interaction.reply({
-              content: `❌ No hay datos de stock. Ejecuta /sync-variants primero.`,
-              ephemeral: true
-            }).catch(() => {});
+            await interaction.reply({ content: msg, ephemeral: true }).catch(() => {});
           }
           return;
         }
@@ -205,43 +171,35 @@ export default {
         return;
       }
 
-      // Case 2: Product specified but not variant - show all variants of that product
+      // Case 2: Product only
       if (productInput && !variantInput) {
-        const productData = Object.values(variantsData).find(p => 
-          p.productId.toString() === productInput
-        );
+        const productData = Object.values(variantsData).find(p => p.productId.toString() === productInput);
 
         if (!productData) {
+          const msg = `❌ Producto no encontrado.`;
           if (interaction.deferred || interaction.replied) {
-            await interaction.editReply({
-              content: `❌ Producto no encontrado.`
-            }).catch(() => {});
+            await interaction.editReply({ content: msg }).catch(() => {});
           } else {
-            await interaction.reply({
-              content: `❌ Producto no encontrado.`,
-              ephemeral: true
-            }).catch(() => {});
+            await interaction.reply({ content: msg, ephemeral: true }).catch(() => {});
           }
           return;
         }
 
         const embed = new EmbedBuilder()
           .setColor(0x0099FF)
-          .setTitle(`📦 Stock: ${productData.productName}`);
+          .setTitle(`📦 ${productData.productName}`);
 
         const variants = Object.values(productData.variants || {});
         let description = '';
         
         for (const v of variants) {
-          const line = `• **${v.name}**: ${v.stock} items\n`;
+          const line = `• ${v.name}: ${v.stock} items\n`;
           if ((description + line).length <= 1024) {
             description += line;
-          } else {
-            break;
           }
         }
 
-        embed.setDescription(description || 'No hay variantes');
+        embed.setDescription(description || 'No variants');
 
         if (interaction.deferred || interaction.replied) {
           await interaction.editReply({ embeds: [embed] }).catch(() => {});
@@ -251,22 +209,16 @@ export default {
         return;
       }
 
-      // Case 3: Both product and variant specified - show REAL items from cache
+      // Case 3: Product + Variant
       if (productInput && variantInput) {
-        const productData = Object.values(variantsData).find(p => 
-          p.productId.toString() === productInput
-        );
+        const productData = Object.values(variantsData).find(p => p.productId.toString() === productInput);
 
         if (!productData) {
+          const msg = `❌ Producto no encontrado.`;
           if (interaction.deferred || interaction.replied) {
-            await interaction.editReply({
-              content: `❌ Producto no encontrado.`
-            }).catch(() => {});
+            await interaction.editReply({ content: msg }).catch(() => {});
           } else {
-            await interaction.reply({
-              content: `❌ Producto no encontrado.`,
-              ephemeral: true
-            }).catch(() => {});
+            await interaction.reply({ content: msg, ephemeral: true }).catch(() => {});
           }
           return;
         }
@@ -274,99 +226,60 @@ export default {
         const variant = productData.variants?.[variantInput];
 
         if (!variant) {
+          const msg = `❌ Variante no encontrada.`;
           if (interaction.deferred || interaction.replied) {
-            await interaction.editReply({
-              content: `❌ Variante no encontrada.`
-            }).catch(() => {});
+            await interaction.editReply({ content: msg }).catch(() => {});
           } else {
-            await interaction.reply({
-              content: `❌ Variante no encontrada.`,
-              ephemeral: true
-            }).catch(() => {});
+            await interaction.reply({ content: msg, ephemeral: true }).catch(() => {});
           }
           return;
         }
 
-        // Try to fetch real items from API
-        console.log(`[STOCK] User requested items for ${productData.productName} → ${variant.name}`);
+        // Fetch items
         const realItems = await getVariantRealItems(api, productData.productId, variantInput);
         
         const embed = new EmbedBuilder()
           .setColor(0x0099FF)
-          .setTitle(`📦 Stock: ${variant.name}`);
+          .setTitle(`📦 ${variant.name}`);
 
-        // Use cache stock (which was verified during /sync-variants)
-        const cachedStock = variant.stock;
-        
-        // Build fields
-        const fields = [
-          { name: '🏪 Producto', value: productData.productName.substring(0, 1024), inline: false },
-          { name: '🎮 Variante', value: variant.name.substring(0, 1024), inline: false },
-          { name: '📊 Stock Verificado', value: `${cachedStock} items (sincronizado)`.substring(0, 1024), inline: false }
-        ];
+        // Add fields
+        embed.addField('🏪 Producto', productData.productName.substring(0, 1024), false);
+        embed.addField('🎮 Variante', variant.name.substring(0, 1024), false);
+        embed.addField('📊 Stock Total', `${variant.stock} items disponibles`, false);
 
-        // Add items from API if available, otherwise note cache
+        // Add items if found
         if (realItems.length > 0) {
           let itemsText = '';
-          let itemCount = 0;
-          
-          // Build items string respecting 1024 char limit
-          for (let i = 0; i < realItems.length; i++) {
-            const itemLine = `${i + 1}. ${realItems[i]}\n`;
-            if ((itemsText + itemLine).length <= 1000) {
-              itemsText += itemLine;
-              itemCount++;
-            } else {
-              break;
-            }
+          for (let i = 0; i < Math.min(realItems.length, 20); i++) {
+            const item = realItems[i];
+            const itemLine = typeof item === 'string' ? item : JSON.stringify(item);
+            itemsText += `${i + 1}. ${itemLine.substring(0, 100)}\n`;
           }
 
-          if (realItems.length > itemCount) {
-            itemsText += `\n... y ${realItems.length - itemCount} items más`;
+          if (realItems.length > 20) {
+            itemsText += `\n✅ ... y ${realItems.length - 20} items más`;
           }
 
-          fields.push({
-            name: `📋 Items (${realItems.length})`,
-            value: itemsText.substring(0, 1024),
-            inline: false
-          });
+          embed.addField(`📋 Credenciales (${realItems.length})`, itemsText.substring(0, 1024), false);
         } else {
-          fields.push({
-            name: '📋 Información',
-            value: `✅ Stock verificado desde SellAuth\nÚltima sincronización: /sync-variants\nPara ver items detallados, sincroniza nuevamente.`,
-            inline: false
-          });
+          embed.addField('📋 Credenciales', `No se encontraron items. Disponibles: ${variant.stock}`, false);
         }
-
-        // Add fields (max 25 fields per embed)
-        if (fields.length > 25) {
-          fields.length = 25;
-        }
-        embed.addFields(fields);
 
         if (interaction.deferred || interaction.replied) {
-          await interaction.editReply({ embeds: [embed] }).catch((e) => {
-            console.error('[STOCK] EditReply error:', e.message);
-          });
+          await interaction.editReply({ embeds: [embed] }).catch(() => {});
         } else {
-          await interaction.reply({ embeds: [embed], ephemeral: true }).catch((e) => {
-            console.error('[STOCK] Reply error:', e.message);
-          });
+          await interaction.reply({ embeds: [embed], ephemeral: true }).catch(() => {});
         }
         return;
       }
 
     } catch (error) {
       console.error('[STOCK] Error:', error);
+      const msg = `❌ Error: ${error.message}`;
       if (interaction.deferred || interaction.replied) {
-        await interaction.editReply({ 
-          content: `❌ Error: ${error.message}` 
-        }).catch(() => {});
+        await interaction.editReply({ content: msg }).catch(() => {});
       } else {
-        await interaction.reply({
-          content: `❌ Error: ${error.message}`,
-          ephemeral: true
-        }).catch(() => {});
+        await interaction.reply({ content: msg, ephemeral: true }).catch(() => {});
       }
     }
   }
