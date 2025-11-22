@@ -2,66 +2,120 @@ import { SlashCommandBuilder, EmbedBuilder } from 'discord.js';
 import { loadVariantsData } from '../utils/dataLoader.js';
 import { ErrorLog } from '../utils/errorLogger.js';
 import { Api } from '../classes/Api.js';
-import { CommandLogger } from '../utils/commandLogger.js';
+import { AdvancedCommandLogger } from '../utils/advancedCommandLogger.js';
 
 export default {
   data: new SlashCommandBuilder()
     .setName('invoice-view')
-    .setDescription('Ver detalles de producto o invoice')
+    .setDescription('🔍 Buscar detalles de Producto o Invoice')
     .addStringOption((option) => 
       option.setName('id')
         .setDescription('Product ID (ej: 433092) o Invoice ID (ej: b30/xxxxx)')
         .setRequired(true)
+        .setAutocomplete(true)
     ),
 
   onlyWhitelisted: true,
   requiredRole: 'staff',
 
-  async execute(interaction) {
+  async autocomplete(interaction) {
     try {
-      await CommandLogger.logCommand(interaction, 'invoice-view');
-      const inputId = interaction.options.getString('id');
-
-      try {
-        await interaction.deferReply({ ephemeral: true });
-      } catch (deferError) {
-        console.error(`[INVOICE-VIEW] Defer error: ${deferError.message}`);
+      const focusedValue = interaction.options.getFocused(true).value;
+      if (!focusedValue) {
+        await interaction.respond([]);
         return;
       }
+
+      const variantsData = loadVariantsData();
+      const productIds = Object.keys(variantsData)
+        .filter(id => id.includes(focusedValue) || variantsData[id].productName.toLowerCase().includes(focusedValue.toLowerCase()))
+        .slice(0, 20)
+        .map(id => ({
+          name: `${variantsData[id].productName} (${id})`,
+          value: id
+        }));
+
+      await interaction.respond(productIds);
+    } catch (error) {
+      console.error('[INVOICE-VIEW] Autocomplete error:', error);
+      await interaction.respond([]).catch(() => {});
+    }
+  },
+
+  async execute(interaction) {
+    const startTime = Date.now();
+    try {
+      await interaction.deferReply({ ephemeral: true });
+
+      const inputId = interaction.options.getString('id');
 
       // Validate input
       if (!inputId || inputId.trim() === '') {
         await interaction.editReply({
-          content: '❌ Debes proporcionar un ID (producto o invoice)'
+          content: '❌ Debes proporcionar un ID (producto o invoice)\n💡 Ejemplos:\n  • Producto: `433092`\n  • Invoice: `b30/xxxxx`'
         });
         return;
       }
 
       const cleanId = inputId.trim();
+      console.log(`[INVOICE-VIEW] Search query: "${cleanId}"`);
+
+      // Determine search type
       const isInvoiceId = cleanId.includes('/');
 
       if (isInvoiceId) {
-        // Invoice ID - query API
+        // ============ INVOICE ID SEARCH ============
+        console.log(`[INVOICE-VIEW] Detected: INVOICE ID`);
+        
+        // Validate invoice format
+        const invoiceParts = cleanId.split('/');
+        if (invoiceParts.length !== 2 || !invoiceParts[0] || !invoiceParts[1]) {
+          await interaction.editReply({
+            content: `❌ Formato de Invoice inválido.\n✅ Formato correcto: \`b30/xxxxxxx\`\n💡 Ejemplo: \`b30/12345678\``
+          });
+          return;
+        }
+
         try {
           const api = new Api();
-          console.log(`[INVOICE-VIEW] Fetching invoice: ${cleanId}`);
-          const invoiceData = await api.get(`invoices/${cleanId}`);
+          const encodedId = encodeURIComponent(cleanId);
+          console.log(`[INVOICE-VIEW] API call: invoices/${encodedId}`);
 
-          if (!invoiceData || Object.keys(invoiceData).length === 0) {
+          let invoiceData = null;
+          try {
+            invoiceData = await api.get(`invoices/${encodedId}`);
+          } catch (apiError) {
+            console.error(`[INVOICE-VIEW] API error:`, apiError);
+            throw new Error(`API Error: ${apiError.message || 'Unknown error'}`);
+          }
+
+          if (!invoiceData || (typeof invoiceData === 'object' && Object.keys(invoiceData).length === 0)) {
             await interaction.editReply({
-              content: `❌ Invoice no encontrado: ${cleanId}`
+              content: `❌ Invoice **no encontrado**: \`${cleanId}\`\n\n💡 Verifica:\n  • El ID sea correcto\n  • El invoice exista en el sistema\n  • Contacta al admin si el problema persiste`
+            });
+
+            await AdvancedCommandLogger.logCommand(interaction, 'invoice-view', {
+              status: 'EXECUTED',
+              result: `Invoice not found: ${cleanId}`,
+              executionTime: Date.now() - startTime,
+              metadata: {
+                'Search Type': 'Invoice',
+                'Invoice ID': cleanId,
+                'Result': 'Not Found'
+              }
             });
             return;
           }
 
+          // Build invoice embed
           const embed = new EmbedBuilder()
             .setColor(0x0099ff)
-            .setTitle('📋 Detalles de Invoice')
-            .setDescription(`Invoice ID: \`${cleanId}\``)
+            .setTitle('📋 DETALLES DE INVOICE')
+            .setDescription(`Invoice: \`${cleanId}\``)
             .addFields(
               {
                 name: '🛍️ Producto',
-                value: invoiceData.product_name || invoiceData.product || 'N/A',
+                value: (invoiceData.product_name || invoiceData.product || 'N/A').substring(0, 100),
                 inline: true
               },
               {
@@ -71,66 +125,127 @@ export default {
               },
               {
                 name: '📅 Fecha',
-                value: invoiceData.created_at || 'N/A',
+                value: invoiceData.created_at?.substring(0, 10) || 'N/A',
                 inline: true
               },
               {
                 name: '✅ Estado',
-                value: invoiceData.status || 'N/A',
+                value: (invoiceData.status || 'Unknown').toUpperCase(),
                 inline: true
               }
             )
-            .setFooter({ text: 'SellAuth Bot | Invoice Details' })
+            .setFooter({ text: 'SellAuth Bot | Invoice Lookup' })
             .setTimestamp();
 
+          if (invoiceData.order_id) {
+            embed.addFields({
+              name: '📦 Order ID',
+              value: invoiceData.order_id.toString(),
+              inline: true
+            });
+          }
+
           await interaction.editReply({ embeds: [embed] });
-          console.log(`[INVOICE-VIEW] ✅ Invoice ${cleanId} retrieved`);
-        } catch (apiError) {
-          console.error('[INVOICE-VIEW] API Error:', apiError.message);
+
+          const executionTime = Date.now() - startTime;
+          await AdvancedCommandLogger.logCommand(interaction, 'invoice-view', {
+            status: 'EXECUTED',
+            result: `Invoice found: ${cleanId}`,
+            executionTime,
+            metadata: {
+              'Search Type': 'Invoice',
+              'Invoice ID': cleanId,
+              'Product': invoiceData.product_name || 'N/A',
+              'Amount': `$${invoiceData.amount || 0}`,
+              'Status': invoiceData.status || 'Unknown'
+            }
+          });
+
+          console.log(`[INVOICE-VIEW] ✅ Invoice ${cleanId} retrieved successfully`);
+        } catch (invoiceError) {
+          console.error('[INVOICE-VIEW] Invoice search error:', invoiceError);
           await interaction.editReply({
-            content: `❌ Error: No se pudo obtener el invoice (${apiError.message})`
+            content: `❌ Error al buscar invoice: \`${invoiceError.message}\``
+          });
+
+          await AdvancedCommandLogger.logCommand(interaction, 'invoice-view', {
+            status: 'ERROR',
+            result: invoiceError.message,
+            executionTime: Date.now() - startTime,
+            metadata: {
+              'Search Type': 'Invoice',
+              'Invoice ID': cleanId,
+              'Error Type': invoiceError.name
+            },
+            errorCode: invoiceError.name,
+            stackTrace: invoiceError.stack
           });
         }
       } else {
-        // Product ID - load from cache
+        // ============ PRODUCT ID SEARCH ============
+        console.log(`[INVOICE-VIEW] Detected: PRODUCT ID`);
+
         try {
           const variantsData = loadVariantsData();
-          
+
           if (!variantsData || Object.keys(variantsData).length === 0) {
             await interaction.editReply({
-              content: '❌ Error: Cache de productos vacío. Ejecuta `/sync-variants` primero.'
+              content: '❌ Cache de productos vacío.\n💡 Ejecuta `/sync-variants` para sincronizar.'
             });
             return;
           }
 
-          // Try both as string key and number key
+          // Search by product ID (string or number)
           let productData = variantsData[cleanId];
           if (!productData) {
             const numId = parseInt(cleanId);
-            productData = variantsData[numId];
+            if (!isNaN(numId)) {
+              productData = variantsData[numId.toString()];
+            }
           }
 
           if (!productData) {
-            const availableIds = Object.keys(variantsData).slice(0, 5).join(', ');
+            // Show available products
+            const availableIds = Object.keys(variantsData).slice(0, 10);
+            const availableList = availableIds
+              .map(id => `• \`${id}\` - ${variantsData[id].productName.substring(0, 30)}`)
+              .join('\n');
+
             await interaction.editReply({
-              content: `❌ Producto no encontrado: ${cleanId}\n\n💡 Productos disponibles: ${availableIds}...`
+              content: `❌ Producto **no encontrado**: \`${cleanId}\`\n\n📝 Productos disponibles (primeros 10):\n${availableList}\n\n💡 Usa \`/stock\` para ver todos los productos`
+            });
+
+            await AdvancedCommandLogger.logCommand(interaction, 'invoice-view', {
+              status: 'EXECUTED',
+              result: `Product not found: ${cleanId}`,
+              executionTime: Date.now() - startTime,
+              metadata: {
+                'Search Type': 'Product',
+                'Product ID': cleanId,
+                'Result': 'Not Found',
+                'Available IDs': availableIds.length
+              }
             });
             return;
           }
 
-          // Build product details
+          // Build product embed
           let variantsText = '';
           let totalStock = 0;
           let variantCount = 0;
 
           if (productData.variants && typeof productData.variants === 'object') {
-            for (const [variantId, variantData] of Object.entries(productData.variants)) {
+            const variantEntries = Object.entries(productData.variants);
+            for (const [variantId, variantData] of variantEntries.slice(0, 15)) {
               variantCount++;
               const stock = variantData.stock || 0;
               totalStock += stock;
               const emoji = stock > 0 ? '✅' : '❌';
-              const name = variantData.name || `Variante ${variantId}`;
-              variantsText += `${emoji} **${name}**: ${stock} items\n`;
+              const name = variantData.name || `Variant ${variantId}`;
+              variantsText += `${emoji} **${name}**: ${stock}\n`;
+            }
+            if (variantEntries.length > 15) {
+              variantsText += `\n... y ${variantEntries.length - 15} variantes más`;
             }
           }
 
@@ -150,24 +265,52 @@ export default {
               },
               {
                 name: '📈 Estado',
-                value: totalStock > 0 ? '✅ Con Stock' : '❌ Sin Stock',
+                value: totalStock > 0 ? '✅ **Con Stock**' : '❌ **Sin Stock**',
                 inline: true
               },
               {
-                name: '🎮 Variantes',
+                name: '🎮 Primeras Variantes',
                 value: variantsText || 'Sin variantes',
                 inline: false
               }
             )
-            .setFooter({ text: 'SellAuth Bot | Product Details' })
+            .setFooter({ text: 'SellAuth Bot | Product Lookup' })
             .setTimestamp();
 
           await interaction.editReply({ embeds: [embed] });
+
+          const executionTime = Date.now() - startTime;
+          await AdvancedCommandLogger.logCommand(interaction, 'invoice-view', {
+            status: 'EXECUTED',
+            result: `Product found: ${productData.productName}`,
+            executionTime,
+            metadata: {
+              'Search Type': 'Product',
+              'Product ID': cleanId,
+              'Product Name': productData.productName,
+              'Variants': variantCount,
+              'Total Stock': totalStock
+            }
+          });
+
           console.log(`[INVOICE-VIEW] ✅ Product ${cleanId} retrieved by ${interaction.user.username}`);
-        } catch (cacheError) {
-          console.error('[INVOICE-VIEW] Cache Error:', cacheError);
+        } catch (productError) {
+          console.error('[INVOICE-VIEW] Product search error:', productError);
           await interaction.editReply({
-            content: `❌ Error al cargar producto: ${cacheError.message}`
+            content: `❌ Error al buscar producto: \`${productError.message}\``
+          });
+
+          await AdvancedCommandLogger.logCommand(interaction, 'invoice-view', {
+            status: 'ERROR',
+            result: productError.message,
+            executionTime: Date.now() - startTime,
+            metadata: {
+              'Search Type': 'Product',
+              'Product ID': cleanId,
+              'Error Type': productError.name
+            },
+            errorCode: productError.name,
+            stackTrace: productError.stack
           });
         }
       }
@@ -186,11 +329,19 @@ export default {
         });
       } catch (e) {
         console.error('[INVOICE-VIEW] Reply failed:', e.message);
-        ErrorLog.log('invoice-view', e, {
-          stage: 'REPLY_FAILURE',
-          userId: interaction.user.id
-        });
       }
+
+      await AdvancedCommandLogger.logCommand(interaction, 'invoice-view', {
+        status: 'ERROR',
+        result: error.message,
+        executionTime: Date.now() - startTime,
+        metadata: {
+          'Error Stage': 'CRITICAL',
+          'Error Type': error.name
+        },
+        errorCode: error.name,
+        stackTrace: error.stack
+      });
     }
   }
 };
