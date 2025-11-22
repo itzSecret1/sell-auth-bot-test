@@ -25,6 +25,17 @@ async function getRealStockFromDeliverables(api, productId, variantId) {
   }
 }
 
+// Limit concurrent promises to avoid overwhelming the API
+async function batchPromises(promises, batchSize = 5) {
+  const results = [];
+  for (let i = 0; i < promises.length; i += batchSize) {
+    const batch = promises.slice(i, i + batchSize);
+    const batchResults = await Promise.all(batch);
+    results.push(...batchResults);
+  }
+  return results;
+}
+
 async function autoSyncVariants(api) {
   try {
     const allVariants = {};
@@ -35,25 +46,34 @@ async function autoSyncVariants(api) {
     const products = await api.get(`shops/${api.shopId}/products`);
     const productList = Array.isArray(products) ? products : (products?.data || []);
 
-    // Process each product with PARALLEL stock fetching
+    // Collect all variants across all products
+    const allVariantsToFetch = [];
+    for (const product of productList) {
+      if (product.variants && Array.isArray(product.variants) && product.variants.length > 0) {
+        for (const variant of product.variants) {
+          allVariantsToFetch.push({ product, variant });
+        }
+      }
+    }
+
+    // Fetch stock in batches (max 5 concurrent requests)
+    const stockPromises = allVariantsToFetch.map(({ product, variant }) =>
+      getRealStockFromDeliverables(api, product.id, variant.id)
+        .then(stock => ({ productId: product.id, variantId: variant.id, stock }))
+        .catch(() => ({ productId: product.id, variantId: variant.id, stock: 0 }))
+    );
+
+    const stockResults = await batchPromises(stockPromises, 5);
+    const stockMap = new Map(stockResults.map(r => (`${r.productId}-${r.variantId}`, r.stock)));
+
+    // Build variants data with fetched stock
     for (const product of productList) {
       try {
         if (product.variants && Array.isArray(product.variants) && product.variants.length > 0) {
           const variantMap = {};
 
-          // Fetch all deliverables for this product's variants IN PARALLEL
-          const stockPromises = product.variants.map(variant =>
-            getRealStockFromDeliverables(api, product.id, variant.id)
-              .then(stock => ({ variantId: variant.id, stock }))
-              .catch(() => ({ variantId: variant.id, stock: 0 }))
-          );
-
-          const stockResults = await Promise.all(stockPromises);
-
-          // Map results back to variants
           for (const variant of product.variants) {
-            const stockResult = stockResults.find(r => r.variantId === variant.id);
-            const realStock = stockResult?.stock || 0;
+            const realStock = stockMap.get(`${product.id}-${variant.id}`) || 0;
             
             variantMap[variant.id.toString()] = {
               id: variant.id,
@@ -94,7 +114,7 @@ export function startAutoSync(api) {
   if (existsSync(variantsDataPath)) {
     try {
       const cached = JSON.parse(readFileSync(variantsDataPath, 'utf-8'));
-      console.log('[AUTO-SYNC] Using cached variants data');
+      console.log('[AUTO-SYNC] Using cached variants data immediately');
     } catch (e) {
       console.log('[AUTO-SYNC] Cache error, will regenerate');
     }
@@ -116,5 +136,5 @@ export function startAutoSync(api) {
     }
   }, 30000);
 
-  console.log('[AUTO-SYNC] Auto-sync started - updating every 30 seconds');
+  console.log('[AUTO-SYNC] Auto-sync started - updating every 30 seconds (batch size: 5)');
 }
