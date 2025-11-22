@@ -51,21 +51,21 @@ export function getTimeoutReason(userId) {
 }
 
 /**
- * Track action for user
+ * Track action for user (Thread-safe Map operations)
  */
 function trackAction(userId, action = 'replace') {
-  if (!userActions.has(userId)) {
-    userActions.set(userId, []);
-  }
-
-  const actions = userActions.get(userId);
+  // Ensure user has action array
+  const existingActions = userActions.get(userId) || [];
   const now = Date.now();
   
-  // Clean old actions (older than 5 seconds)
+  // Clean old actions (older than 5 seconds) - THREAD-SAFE: Create new array
   const cutoff = now - 5000;
-  const recentActions = actions.filter(a => a.timestamp > cutoff);
+  const recentActions = existingActions.filter(a => a.timestamp > cutoff);
   
+  // Add new action
   recentActions.push({ timestamp: now, action });
+  
+  // Store back (atomic operation for this user)
   userActions.set(userId, recentActions);
 
   return recentActions;
