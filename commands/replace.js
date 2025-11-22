@@ -264,10 +264,11 @@ export default {
         return;
       }
 
-      // Safely remove items and prepare new data
-      const removedItems = deliverablesArray.splice(0, quantity);
-      const newDeliverablesString = deliverablesArray.join('\n');
-      const remainingStock = deliverablesArray.length;
+      // IMPORTANT: Do NOT modify the original array yet - work with a copy
+      const itemsCopy = [...deliverablesArray];
+      const removedItems = itemsCopy.splice(0, quantity);
+      const newDeliverablesString = itemsCopy.join('\n');
+      const remainingStock = itemsCopy.length;
 
       // Validate items were actually removed (double-check)
       if (removedItems.length !== quantity) {
@@ -278,36 +279,42 @@ export default {
         return;
       }
 
-      // Try to update in API
+      // Try to update in API - DO THIS FIRST before changing anything else
+      let apiUpdateSuccess = false;
       try {
         console.log(`[REPLACE] Updating ${product.id}/${variant.id}: Removing ${quantity} items, ${remainingStock} remaining`);
         await api.put(
           `shops/${api.shopId}/products/${product.id}/deliverables/overwrite/${variant.id}`,
           { deliverables: newDeliverablesString }
         );
+        apiUpdateSuccess = true;
+        console.log(`[REPLACE] API PUT successful`);
       } catch (updateError) {
         console.error(`[REPLACE ERROR] API PUT failed: ${updateError.message}`);
         await interaction.editReply({ 
-          content: `❌ Error guardando cambios en la API.\n` +
+          content: `❌ Error actualizando stock en la API.\n` +
                    `Stock NO fue modificado. Intenta de nuevo.`
         });
         return;
       }
 
       // Update cache ONLY after successful API update
-      try {
-        const variantsData = loadVariantsData();
-        if (variantsData[product.id.toString()]?.variants[variant.id.toString()]) {
-          variantsData[product.id.toString()].variants[variant.id.toString()].stock = remainingStock;
-          writeFileSync(variantsDataPath, JSON.stringify(variantsData, null, 2));
-          console.log(`[CACHE] Updated: ${product.id}/${variant.id} - New stock: ${remainingStock}`);
+      if (apiUpdateSuccess) {
+        try {
+          const variantsData = loadVariantsData();
+          if (variantsData[product.id.toString()]?.variants[variant.id.toString()]) {
+            variantsData[product.id.toString()].variants[variant.id.toString()].stock = remainingStock;
+            writeFileSync(variantsDataPath, JSON.stringify(variantsData, null, 2));
+            console.log(`[CACHE] Updated: ${product.id}/${variant.id} - New stock: ${remainingStock}`);
+          }
+        } catch (cacheError) {
+          console.error(`[CACHE ERROR] ${cacheError.message}`);
+          // Cache error doesn't fail the operation since API was updated
         }
-      } catch (cacheError) {
-        console.error(`[CACHE ERROR] ${cacheError.message}`);
-        // Cache error doesn't fail the operation since API was updated
-      }
 
-      addToHistory(product.id, product.name, removedItems, variant.id, variant.name);
+        // Save to history ONLY if API update was successful
+        addToHistory(product.id, product.name, removedItems, variant.id, variant.name);
+      }
 
       // Build items list - split into multiple fields if too long
       const embeds = [];
