@@ -56,22 +56,29 @@ export default {
       console.log(`[SYNC] Total products loaded: ${productList.length}`);
 
       let processedProducts = 0;
-      const updateInterval = setInterval(async () => {
-        const elapsed = Math.floor((Date.now() - startTime) / 1000);
-        // Prevent division by zero
-        const percentage = productList.length > 0 ? Math.round((processedProducts / productList.length) * 100) : 0;
-        const filled = Math.round(percentage / 5);
-        const bar = `[${'█'.repeat(filled)}${'░'.repeat(20 - filled)}] ${percentage}%`;
+      let updateInterval = null;
+      try {
+        updateInterval = setInterval(async () => {
+          const elapsed = Math.floor((Date.now() - startTime) / 1000);
+          // Prevent division by zero
+          const percentage = productList.length > 0 ? Math.round((processedProducts / productList.length) * 100) : 0;
+          const filled = Math.round(percentage / 5);
+          const bar = `[${'█'.repeat(filled)}${'░'.repeat(20 - filled)}] ${percentage}%`;
 
-        const message =
-          `🔄 **SINCRONIZACIÓN EN PROGRESO**\n\n` +
-          `${bar}\n\n` +
-          `📊 Productos: ${processedProducts}/${productList.length}\n` +
-          `🎮 Variantes: ${totalVariants}\n` +
-          `⏱️ Tiempo: ${Math.floor(elapsed / 60)}m ${elapsed % 60}s`;
+          const message =
+            `🔄 **SINCRONIZACIÓN EN PROGRESO**\n\n` +
+            `${bar}\n\n` +
+            `📊 Productos: ${processedProducts}/${productList.length}\n` +
+            `🎮 Variantes: ${totalVariants}\n` +
+            `⏱️ Tiempo: ${Math.floor(elapsed / 60)}m ${elapsed % 60}s`;
 
-        await interaction.editReply({ content: message }).catch(() => {});
-      }, 2000);
+          await interaction.editReply({ content: message }).catch((err) => {
+            console.error(`[SYNC] Update progress failed: ${err.message}`);
+          });
+        }, 2000);
+      } catch (err) {
+        console.error(`[SYNC] Failed to start progress interval: ${err.message}`);
+      }
 
       // STEP 2: Process each product's variants
       console.log(`[SYNC] === STEP 2: Processing product variants ===`);
@@ -192,10 +199,17 @@ export default {
         console.error(`[SYNC] Error discovering from invoices:`, e.message);
       }
 
-      clearInterval(updateInterval);
+      if (updateInterval) {
+        clearInterval(updateInterval);
+      }
 
       // Save to file
-      writeFileSync(variantsDataPath, JSON.stringify(allVariants, null, 2));
+      try {
+        writeFileSync(variantsDataPath, JSON.stringify(allVariants, null, 2));
+      } catch (err) {
+        console.error(`[SYNC] Error saving variantsData.json: ${err.message}`);
+        ErrorLog.log('sync-variants', err, { stage: 'FILE_SAVE' });
+      }
       const totalTime = Math.round((Date.now() - startTime) / 1000);
 
       console.log(`[SYNC] === SYNC COMPLETE ===`);
@@ -231,26 +245,45 @@ export default {
         .setDescription(reportText.substring(0, 4096))
         .setTimestamp();
 
+      if (updateInterval) {
+        clearInterval(updateInterval);
+      }
+
       if (interaction.deferred || interaction.replied) {
-        await interaction.editReply({ embeds: [embed] }).catch(() => {});
+        await interaction.editReply({ embeds: [embed] }).catch((err) => {
+          console.error(`[SYNC] Failed to send completion embed: ${err.message}`);
+        });
       } else {
-        await interaction.reply({ embeds: [embed], ephemeral: true }).catch(() => {});
+        await interaction.reply({ embeds: [embed], ephemeral: true }).catch((err) => {
+          console.error(`[SYNC] Failed to reply with completion embed: ${err.message}`);
+        });
       }
     } catch (error) {
       console.error('Sync error:', error);
+      
+      if (updateInterval) {
+        clearInterval(updateInterval);
+      }
+
+      ErrorLog.log('sync-variants', error, { stage: 'OUTER_EXCEPTION' });
+
       if (interaction.deferred || interaction.replied) {
         await interaction
           .editReply({
             content: `❌ Error en sincronización: ${error.message}`
           })
-          .catch(() => {});
+          .catch((err) => {
+            console.error(`[SYNC] Failed to send error reply: ${err.message}`);
+          });
       } else {
         await interaction
           .reply({
             content: `❌ Error en sincronización: ${error.message}`,
             ephemeral: true
           })
-          .catch(() => {});
+          .catch((err) => {
+            console.error(`[SYNC] Failed to reply with error: ${err.message}`);
+          });
       }
     }
   }
