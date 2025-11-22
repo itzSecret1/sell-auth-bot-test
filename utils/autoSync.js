@@ -58,12 +58,16 @@ async function autoSyncVariants(api) {
 export function startAutoSync(api) {
   // Run sync immediately on start
   console.log('[AUTO-SYNC] Starting auto-sync...');
-  autoSyncVariants(api);
+  autoSyncVariants(api).catch(err => console.error('[AUTO-SYNC] Initial sync error:', err.message));
 
-  // Run sync every 1 second
-  setInterval(() => {
-    autoSyncVariants(api);
-  }, 1000);
+  // Run sync every 30 seconds (reduced from 1 second to prevent blocking)
+  setInterval(async () => {
+    try {
+      await autoSyncVariants(api);
+    } catch (err) {
+      console.error('[AUTO-SYNC] Sync error:', err.message);
+    }
+  }, 30000);
 
-  console.log('[AUTO-SYNC] Auto-sync started - updating every 1 second');
+  console.log('[AUTO-SYNC] Auto-sync started - updating every 30 seconds');
 }
