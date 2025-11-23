@@ -2,6 +2,7 @@ import { SlashCommandBuilder, EmbedBuilder } from 'discord.js';
 import { writeFileSync } from 'fs';
 import { join } from 'path';
 import { AdvancedCommandLogger } from '../utils/advancedCommandLogger.js';
+import { ErrorLog } from '../utils/errorLogger.js';
 
 const variantsDataPath = join(process.cwd(), 'variantsData.json');
 
@@ -57,24 +58,35 @@ export default {
 
       let processedProducts = 0;
       let updateInterval = null;
+      let lastUpdate = Date.now();
       try {
         updateInterval = setInterval(async () => {
-          const elapsed = Math.floor((Date.now() - startTime) / 1000);
-          // Prevent division by zero
-          const percentage = productList.length > 0 ? Math.round((processedProducts / productList.length) * 100) : 0;
-          const filled = Math.round(percentage / 5);
-          const bar = `[${'█'.repeat(filled)}${'░'.repeat(20 - filled)}] ${percentage}%`;
+          try {
+            // Throttle updates to every 3 seconds to avoid rate limits
+            if (Date.now() - lastUpdate < 3000) return;
+            lastUpdate = Date.now();
+            
+            const elapsed = Math.floor((Date.now() - startTime) / 1000);
+            // Prevent division by zero
+            const percentage = productList.length > 0 ? Math.round((processedProducts / productList.length) * 100) : 0;
+            const filled = Math.round(percentage / 5);
+            const bar = `[${'█'.repeat(filled)}${'░'.repeat(20 - filled)}] ${percentage}%`;
 
-          const message =
-            `🔄 **SINCRONIZACIÓN EN PROGRESO**\n\n` +
-            `${bar}\n\n` +
-            `📊 Productos: ${processedProducts}/${productList.length}\n` +
-            `🎮 Variantes: ${totalVariants}\n` +
-            `⏱️ Tiempo: ${Math.floor(elapsed / 60)}m ${elapsed % 60}s`;
+            const message =
+              `🔄 **SINCRONIZACIÓN EN PROGRESO**\n\n` +
+              `${bar}\n\n` +
+              `📊 Productos: ${processedProducts}/${productList.length}\n` +
+              `🎮 Variantes: ${totalVariants}\n` +
+              `⏱️ Tiempo: ${Math.floor(elapsed / 60)}m ${elapsed % 60}s`;
 
-          await interaction.editReply({ content: message }).catch((err) => {
-            console.error(`[SYNC] Update progress failed: ${err.message}`);
-          });
+            if (interaction.deferred || interaction.replied) {
+              await interaction.editReply({ content: message }).catch((err) => {
+                console.error(`[SYNC] Update progress failed: ${err.message}`);
+              });
+            }
+          } catch (err) {
+            console.error(`[SYNC] Interval error: ${err.message}`);
+          }
         }, 2000);
       } catch (err) {
         console.error(`[SYNC] Failed to start progress interval: ${err.message}`);
