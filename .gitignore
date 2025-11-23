@@ -31,6 +31,8 @@ attached_assets/
 claims.json
 replaceHistory.json
 variantsData.json
+sessionState.json
+errorLog.json
 .gitignore
 
 # Build
