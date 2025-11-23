@@ -8,6 +8,24 @@ I prefer clear, concise, and structured explanations. Focus on high-level decisi
 
 ## Recent Audit & Fixes (November 23, 2025)
 
+### NEW: Automatic Discord Session Recovery System (Session 4)
+**Feature:** Implemented `SessionRecoveryManager.js` for automatic bot recovery
+- **Problem Solved:** When Discord blocks bot connections due to rate limits, bot now recovers automatically
+- **How it works:**
+  1. Detects Discord session limit errors automatically
+  2. Extracts exact reset time from Discord error message
+  3. Calculates wait time and schedules automatic retry
+  4. Retries connection without any manual intervention needed
+  5. Persists recovery state to `sessionState.json` for robustness
+- **Recovery Strategy:**
+  - Attempt 1: Waits for Discord's specified reset time (or 10 min backoff)
+  - Attempt 2: Waits 20 minutes if first fails
+  - Attempt 3: Waits 30 minutes if second fails
+  - Auto-retry: Enabled by default, can be disabled if needed
+- **Benefits:** Bot automatically reconnects after Discord throttling periods without user intervention
+- **Logging:** Detailed status messages with exact retry times and attempt counts
+- **Files Added:** `utils/SessionRecoveryManager.js`, updated `classes/Bot.js` and `.gitignore`
+
 ### Critical Bugs Fixed (Session 3)
 1. **Missing ErrorLog Import in sync-variants.js** - Added missing import
    - Location: Line 4
@@ -22,6 +40,12 @@ I prefer clear, concise, and structured explanations. Focus on high-level decisi
    - Changed update frequency from every 2 seconds to throttled 3-second updates
    - Added check to prevent sending updates to non-deferred interactions
    - Impact: Prevents "Application did not respond" error on Discord
+
+4. **Improved Autocomplete Error Handling in replace.js** - Enhanced fallback logic
+   - Added multi-layer try-catch system (3 levels of fallback)
+   - Guarantees response to Discord even if errors occur
+   - Catches null/undefined data gracefully
+   - Impact: Eliminates "Ha hablado un error con las opciones de comando" errors
 
 ### Previous Fixes (November 22, 2025)
 
@@ -102,6 +126,7 @@ The bot operates with a modular command-based structure, where each command is a
 - **Performance Optimization:** `quickResponse.js` ensures all commands respond within Discord's 3-second timeout by using immediate acknowledgment with background processing.
 - **Scalable Architecture:** Supports multiple servers simultaneously with isolated configurations, audit logs, and backups per guild.
 - **Centralized History Management:** `historyManager.js` provides single source of truth for replace/unreplace history with safe file operations.
+- **Session Recovery Management:** `SessionRecoveryManager.js` handles Discord connection throttling automatically - detects session limits, extracts reset times, schedules retries, and recovers without manual intervention using persistent state tracking.
 
 ## External Dependencies
 - **Discord API:** For bot interactions, commands, and sending messages/embeds.
