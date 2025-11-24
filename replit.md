@@ -6,9 +6,27 @@ The SellAuth Discord Bot is a production-ready, highly stable Discord bot design
 ## User Preferences
 I prefer clear, concise, and structured explanations. Focus on high-level decisions and their impact. For coding, prioritize robust error handling, security, and maintainability. When making changes, ensure comprehensive logging is in place and that the system remains stable and performant. I prefer to be informed about critical bug fixes and architectural changes.
 
-## Recent Audit & Fixes (November 23, 2025)
+## Recent Audit & Fixes (November 24, 2025)
 
-### NEW: Automatic Discord Session Recovery System (Session 4)
+### NEW: Connection Rate Limiter to Prevent Session Blocking (Session 5)
+**Feature:** Implemented `ConnectionManager.js` for intelligent connection attempt management
+- **Problem Solved:** Bot was attempting reconnections too rapidly after Discord session limits, causing cascading blocks
+- **Solution:** Implemented smart rate limiting for connection attempts
+  - Maximum 2 connection attempts per minute
+  - 30-second minimum between attempts
+  - Automatic 2-minute cooldown if rate limit exceeded
+  - Aggressive backoff on session limit errors (prevents immediate retries)
+- **How it works:**
+  1. Tracks all connection attempts in time window
+  2. Prevents rapid retry loops that trigger Discord throttling
+  3. Implements exponential backoff based on failure patterns
+  4. Clears attempt history on successful connection
+  5. Persists state to `connectionState.json` for robustness
+- **Benefits:** Eliminates session blocking from aggressive reconnection attempts
+- **Files Added:** `utils/ConnectionManager.js`, updated `classes/Bot.js` and `.gitignore`
+- **Expected Reset:** 2025-11-25T18:33:44 UTC - Bot will auto-reconnect exactly at Discord reset time
+
+### Automatic Discord Session Recovery System (Session 4)
 **Feature:** Implemented `SessionRecoveryManager.js` for automatic bot recovery
 - **Problem Solved:** When Discord blocks bot connections due to rate limits, bot now recovers automatically
 - **How it works:**
@@ -127,6 +145,7 @@ The bot operates with a modular command-based structure, where each command is a
 - **Scalable Architecture:** Supports multiple servers simultaneously with isolated configurations, audit logs, and backups per guild.
 - **Centralized History Management:** `historyManager.js` provides single source of truth for replace/unreplace history with safe file operations.
 - **Session Recovery Management:** `SessionRecoveryManager.js` handles Discord connection throttling automatically - detects session limits, extracts reset times, schedules retries, and recovers without manual intervention using persistent state tracking.
+- **Connection Rate Limiting:** `ConnectionManager.js` prevents connection spam by enforcing rate limits (max 2/minute), minimum wait times (30s), and aggressive backoff on session limits - eliminates cascading connection blocks.
 
 ## External Dependencies
 - **Discord API:** For bot interactions, commands, and sending messages/embeds.
