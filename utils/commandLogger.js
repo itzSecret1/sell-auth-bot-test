@@ -61,16 +61,6 @@ export class CommandLogger {
             inline: true
           },
           {
-            name: '📍 Canal',
-            value: `${channel?.name || 'DM'} (${channel?.id || 'N/A'})`,
-            inline: true
-          },
-          {
-            name: '🏢 Servidor',
-            value: guild?.name || 'N/A',
-            inline: true
-          },
-          {
             name: '✅ Estado',
             value: status,
             inline: true
@@ -88,15 +78,32 @@ export class CommandLogger {
       embed.setFooter({ text: `SellAuth Bot | Command Log` })
         .setTimestamp();
 
-      // Try to send log to logs channel if configured
+      // Send to LOG_CHANNEL_ID if configured, otherwise reply to user
+      let logSent = false;
+      
       if (config.LOG_CHANNEL_ID) {
         try {
           const logChannel = await guild?.channels?.fetch(config.LOG_CHANNEL_ID);
-          if (logChannel?.isTextBased()) {
+          if (logChannel && logChannel.isTextBased()) {
             await logChannel.send({ embeds: [embed] });
+            console.log('[CMD-LOG] ✅ Sent to LOG_CHANNEL_ID:', config.LOG_CHANNEL_ID);
+            logSent = true;
           }
         } catch (e) {
-          console.log('[CMD-LOG] Could not send to log channel:', e.message);
+          console.log('[CMD-LOG] ❌ Could not send to log channel:', e.message);
+        }
+      }
+
+      // If no LOG_CHANNEL_ID or failed to send, send ephemeral reply to user
+      if (!logSent) {
+        try {
+          // Only send reply if not already replied/deferred
+          if (interaction && !interaction.replied && !interaction.deferred) {
+            await interaction.reply({ embeds: [embed], flags: 64 }); // 64 = ephemeral
+            console.log('[CMD-LOG] ✅ Sent ephemeral reply to user');
+          }
+        } catch (replyError) {
+          console.log('[CMD-LOG] Could not send reply:', replyError.message);
         }
       }
 
