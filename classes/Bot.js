@@ -12,7 +12,7 @@ import { createStatusReporter } from '../utils/StatusReporter.js';
 import { createWeeklyReporter } from '../utils/WeeklyReporter.js';
 import { createDailyBackupReporter } from '../utils/DailyBackupReporter.js';
 import { createAutoModerator } from '../utils/AutoModerator.js';
-import { createAutoSyncScheduler } from '../utils/AutoSync.js';
+import { createAutoSyncScheduler } from '../utils/AutoSyncScheduler.js';
 import { createPredictiveAlerts } from '../utils/PredictiveAlerts.js';
 
 const __filename = fileURLToPath(import.meta.url);
