@@ -8,7 +8,32 @@ I prefer clear, concise, and structured explanations. Focus on high-level decisi
 
 ## Recent Audit & Fixes (November 24, 2025)
 
-### NEW: Connection Rate Limiter to Prevent Session Blocking (Session 5)
+### NEW: Professional Staff Status Notifications System (Session 6)
+**Feature:** Implemented `StatusReporter.js` for professional staff channel notifications
+- **Problem Solved:** Staff had no visibility into bot offline/online status or recovery times
+- **Solution:** Automated notification system that sends embeds to staff channel (1441496193711472814)
+  - **Offline Notification:** When bot enters recovery, sends professional embed with:
+    - Exact reconnection time extracted from Discord
+    - Wait duration in human-readable format (e.g., "2h 15m")
+    - Recovery attempt number and status
+    - Clear explanation of what happened
+  - **Daily Online Status:** Every day at 12:00 UTC, sends:
+    - Bot uptime confirmation
+    - List of all available commands
+    - Security status (rate limiting, permissions, error logging, auto-recovery)
+    - Professional formatting with green status indicator
+- **How it works:**
+  1. When session limit detected, `SessionRecoveryManager` calls `StatusReporter.notifyOfflineWithRecovery()`
+  2. `StatusReporter` fetches staff channel and sends professional embed
+  3. Bot tracks daily messages (only sends once per 24h)
+  4. Scheduled automatically at 12:00 UTC every day
+- **Files Added:** `utils/StatusReporter.js`, updated `utils/SessionRecoveryManager.js` and `classes/Bot.js`
+- **Expected Behavior:** 
+  - ✅ Offline message sent to staff when session limit detected
+  - ✅ Online confirmation sent daily at 12:00 UTC
+  - ✅ All messages include timestamps for transparency
+
+### Connection Rate Limiter to Prevent Session Blocking (Session 5)
 **Feature:** Implemented `ConnectionManager.js` for intelligent connection attempt management
 - **Problem Solved:** Bot was attempting reconnections too rapidly after Discord session limits, causing cascading blocks
 - **Solution:** Implemented smart rate limiting for connection attempts
@@ -146,6 +171,7 @@ The bot operates with a modular command-based structure, where each command is a
 - **Centralized History Management:** `historyManager.js` provides single source of truth for replace/unreplace history with safe file operations.
 - **Session Recovery Management:** `SessionRecoveryManager.js` handles Discord connection throttling automatically - detects session limits, extracts reset times, schedules retries, and recovers without manual intervention using persistent state tracking.
 - **Connection Rate Limiting:** `ConnectionManager.js` prevents connection spam by enforcing rate limits (max 2/minute), minimum wait times (30s), and aggressive backoff on session limits - eliminates cascading connection blocks.
+- **Professional Status Notifications:** `StatusReporter.js` sends automated professional embeds to staff channel - offline recovery notifications with exact reconnection times, and daily online confirmations at 12:00 UTC showing uptime, commands, and security status.
 
 ## External Dependencies
 - **Discord API:** For bot interactions, commands, and sending messages/embeds.
