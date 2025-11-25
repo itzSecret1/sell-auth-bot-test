@@ -132,38 +132,36 @@ export class Bot {
         }
       }
 
-      console.log(`[BOT] 📤 Registering ${this.slashCommands.length} slash commands...`);
+      console.log(`[BOT] 📤 Preparing to register ${this.slashCommands.length} slash commands...`);
+      console.log(`[BOT] 🤖 Bot ID: ${this.client.user.id}`);
+      console.log(`[BOT] 🏢 Guild ID: ${config.BOT_GUILD_ID || 'Global'}`);
 
       // First clear old commands to avoid conflicts
-      if (config.BOT_GUILD_ID) {
-        try {
-          console.log('[BOT] 🧹 Clearing old commands...');
-          await rest.put(Routes.applicationGuildCommands(this.client.user.id, config.BOT_GUILD_ID), {
-            body: []
-          });
-          console.log('[BOT] ✅ Old commands cleared');
-        } catch (e) {
-          console.warn('[BOT] ⚠️ Could not clear old commands:', e.message);
-        }
+      const route = config.BOT_GUILD_ID
+        ? Routes.applicationGuildCommands(this.client.user.id, config.BOT_GUILD_ID)
+        : Routes.applicationCommands(this.client.user.id);
 
-        // Register new commands
-        await rest.put(Routes.applicationGuildCommands(this.client.user.id, config.BOT_GUILD_ID), {
-          body: this.slashCommands
-        });
-      } else {
-        try {
-          console.log('[BOT] 🧹 Clearing old commands...');
-          await rest.put(Routes.applicationCommands(this.client.user.id), { body: [] });
-          console.log('[BOT] ✅ Old commands cleared');
-        } catch (e) {
-          console.warn('[BOT] ⚠️ Could not clear old commands:', e.message);
+      try {
+        console.log('[BOT] 🧹 Fetching existing commands to clear...');
+        const existingCommands = await rest.get(route);
+        console.log(`[BOT] Found ${existingCommands.length} existing commands, deleting...`);
+        
+        for (const cmd of existingCommands) {
+          await rest.delete(`${route}/${cmd.id}`);
         }
-
-        // Register new commands
-        await rest.put(Routes.applicationCommands(this.client.user.id), { body: this.slashCommands });
+        console.log('[BOT] ✅ All old commands cleared');
+      } catch (e) {
+        console.warn('[BOT] ⚠️ Could not clear old commands:', e.message);
       }
 
-      console.log(`[BOT] ✅ All ${this.slashCommands.length} slash commands registered successfully`);
+      // Wait a bit to ensure Discord sync
+      await new Promise(resolve => setTimeout(resolve, 1000));
+
+      // Register new commands
+      console.log(`[BOT] 📤 Registering ${this.slashCommands.length} new commands...`);
+      const result = await rest.put(route, { body: this.slashCommands });
+      
+      console.log(`[BOT] ✅ Successfully registered ${result.length} slash commands`);
     } catch (error) {
       console.error('[BOT] Error registering slash commands:', error.message);
     }
