@@ -119,11 +119,32 @@ export class Bot {
 
       console.log(`[BOT] 📤 Registering ${this.slashCommands.length} slash commands...`);
 
+      // First clear old commands to avoid conflicts
       if (config.BOT_GUILD_ID) {
+        try {
+          console.log('[BOT] 🧹 Clearing old commands...');
+          await rest.put(Routes.applicationGuildCommands(this.client.user.id, config.BOT_GUILD_ID), {
+            body: []
+          });
+          console.log('[BOT] ✅ Old commands cleared');
+        } catch (e) {
+          console.warn('[BOT] ⚠️ Could not clear old commands:', e.message);
+        }
+
+        // Register new commands
         await rest.put(Routes.applicationGuildCommands(this.client.user.id, config.BOT_GUILD_ID), {
           body: this.slashCommands
         });
       } else {
+        try {
+          console.log('[BOT] 🧹 Clearing old commands...');
+          await rest.put(Routes.applicationCommands(this.client.user.id), { body: [] });
+          console.log('[BOT] ✅ Old commands cleared');
+        } catch (e) {
+          console.warn('[BOT] ⚠️ Could not clear old commands:', e.message);
+        }
+
+        // Register new commands
         await rest.put(Routes.applicationCommands(this.client.user.id), { body: this.slashCommands });
       }
 
