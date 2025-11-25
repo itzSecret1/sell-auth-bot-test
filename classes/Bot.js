@@ -9,6 +9,10 @@ import { startAutoSync } from '../utils/autoSync.js';
 import { sessionManager } from '../utils/SessionRecoveryManager.js';
 import { connectionManager } from '../utils/ConnectionManager.js';
 import { createStatusReporter } from '../utils/StatusReporter.js';
+import { createWeeklyReporter } from '../utils/WeeklyReporter.js';
+import { createDailyBackupReporter } from '../utils/DailyBackupReporter.js';
+import { createAutoModerator } from '../utils/AutoModerator.js';
+import { createAutoSyncScheduler } from '../utils/AutoSync.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -27,9 +31,13 @@ export class Bot {
 
     // Create status reporter for staff notifications
     this.statusReporter = createStatusReporter(client);
-    
-    // Inject status reporter into session manager
     sessionManager.statusReporter = this.statusReporter;
+
+    // Create automated reporters and systems
+    this.weeklyReporter = createWeeklyReporter(client, api);
+    this.dailyBackupReporter = createDailyBackupReporter(client);
+    this.autoModerator = createAutoModerator(client);
+    this.autoSyncScheduler = createAutoSyncScheduler(client, api);
 
     // Login with retry logic for Discord rate limits
     this.loginWithRetry();
@@ -37,13 +45,9 @@ export class Bot {
     this.client.on('ready', () => {
       console.log(`${this.client.user.username} ready!`);
       this.registerSlashCommands();
-      startAutoSync(this.api);
       
-      // Send daily status update to staff channel
-      this.sendDailyStatusUpdate();
-      
-      // Schedule daily status updates at 12:00 UTC
-      this.scheduleDailyStatusUpdates();
+      // Initialize all automated systems
+      this.initializeAutomatedSystems();
     });
 
     this.client.on('warn', (info) => console.log(info));
@@ -113,22 +117,36 @@ export class Bot {
   }
 
   /**
-   * Send daily status update to staff channel
+   * Initialize all automated systems
    */
-  async sendDailyStatusUpdate() {
+  async initializeAutomatedSystems() {
     try {
-      if (this.statusReporter) {
-        await this.statusReporter.sendDailyStatusUpdate();
-      }
+      // Daily status updates
+      await this.statusReporter.sendDailyStatusUpdate();
+      this.scheduleSystemUpdates();
+
+      // Weekly reports
+      this.weeklyReporter.scheduleWeeklyReports();
+
+      // Daily backups
+      this.dailyBackupReporter.scheduleDailyBackups();
+
+      // Hourly auto-sync
+      this.autoSyncScheduler.startHourlySync();
+
+      // Auto-moderation
+      this.autoModerator.setup();
+
+      console.log('[BOT] ✅ All automated systems initialized');
     } catch (error) {
-      console.error('[BOT] Error sending daily status:', error.message);
+      console.error('[BOT] Error initializing systems:', error.message);
     }
   }
 
   /**
-   * Schedule daily status updates at 12:00 UTC
+   * Schedule system updates
    */
-  scheduleDailyStatusUpdates() {
+  scheduleSystemUpdates() {
     const now = new Date();
     const tomorrow = new Date(now);
     tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
@@ -136,14 +154,14 @@ export class Bot {
 
     const timeUntilNext = tomorrow - now;
 
-    console.log(`[BOT] ✅ Daily status updates scheduled at 12:00 UTC (in ${Math.ceil(timeUntilNext / 1000 / 60)} minutes)`);
+    console.log(`[BOT] ✅ System scheduled: Daily updates at 12:00 UTC, Weekly reports at 09:00 UTC Mondays, Daily backups at 03:00 UTC`);
 
     // Schedule for tomorrow
     setTimeout(
       () => {
-        this.sendDailyStatusUpdate();
+        this.statusReporter.sendDailyStatusUpdate();
         // Then schedule for every 24 hours
-        setInterval(() => this.sendDailyStatusUpdate(), 24 * 60 * 60 * 1000);
+        setInterval(() => this.statusReporter.sendDailyStatusUpdate(), 24 * 60 * 60 * 1000);
       },
       timeUntilNext
     );
