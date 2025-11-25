@@ -29,6 +29,7 @@ export class Bot {
     this.slashCommandsMap = new Collection();
     this.cooldowns = new Collection();
     this.queues = new Collection();
+    this.isRegisteringCommands = false;
 
     // Create status reporter for staff notifications
     this.statusReporter = createStatusReporter(client);
@@ -46,7 +47,9 @@ export class Bot {
 
     this.client.on('ready', () => {
       console.log(`${this.client.user.username} ready!`);
-      this.registerSlashCommands();
+      if (!this.isRegisteringCommands) {
+        this.registerSlashCommands();
+      }
       
       // Initialize all automated systems
       this.initializeAutomatedSystems();
@@ -106,6 +109,14 @@ export class Bot {
   }
 
   async registerSlashCommands() {
+    // Prevent multiple concurrent registrations
+    if (this.isRegisteringCommands) {
+      console.log('[BOT] ⏳ Command registration already in progress, skipping...');
+      return;
+    }
+
+    this.isRegisteringCommands = true;
+
     try {
       const rest = new REST({ version: '9' }).setToken(config.BOT_TOKEN);
 
@@ -170,6 +181,8 @@ export class Bot {
       console.log(`[BOT] ✅ Successfully registered ${result.length} slash commands`);
     } catch (error) {
       console.error('[BOT] Error registering slash commands:', error.message);
+    } finally {
+      this.isRegisteringCommands = false;
     }
   }
 
