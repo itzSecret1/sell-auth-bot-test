@@ -31,18 +31,15 @@ export class Bot {
     this.queues = new Collection();
     this.isRegisteringCommands = false;
 
-    // Create status reporter for staff notifications
     this.statusReporter = createStatusReporter(client);
     sessionManager.statusReporter = this.statusReporter;
 
-    // Create automated reporters and systems
     this.weeklyReporter = createWeeklyReporter(client, api);
     this.dailyBackupReporter = createDailyBackupReporter(client);
     this.autoModerator = createAutoModerator(client);
     this.autoSyncScheduler = createAutoSyncScheduler(client, api);
     this.predictiveAlerts = createPredictiveAlerts(client);
 
-    // Login with retry logic for Discord rate limits
     this.loginWithRetry();
 
     this.client.on('ready', () => {
@@ -50,8 +47,6 @@ export class Bot {
       if (!this.isRegisteringCommands) {
         this.registerSlashCommands();
       }
-
-      // Initialize all automated systems
       this.initializeAutomatedSystems();
     });
 
@@ -62,7 +57,6 @@ export class Bot {
 
     this.onInteractionCreate();
 
-    // Global error handler to prevent bot crash
     process.on('unhandledRejection', (reason, promise) => {
       console.error('[BOT] Unhandled Rejection at:', promise, 'reason:', reason);
     });
@@ -73,7 +67,6 @@ export class Bot {
   }
 
   async loginWithRetry() {
-    // Check if we can safely attempt connection
     if (!connectionManager.canAttemptConnection()) {
       const waitTime = connectionManager.getSafeWaitTime();
       const waitSeconds = Math.ceil(waitTime / 1000);
@@ -86,20 +79,15 @@ export class Bot {
       connectionManager.recordAttempt();
       console.log(`[BOT LOGIN] Connecting to Discord... (Safe attempt)`);
       await this.client.login(config.BOT_TOKEN);
-
-      // Success
       connectionManager.markSuccess();
       sessionManager.markSuccessfulLogin();
     } catch (error) {
       if (error.message && error.message.includes('Not enough sessions')) {
-        // Handle Discord session limit with enhanced recovery
         connectionManager.markFailure(true);
         await sessionManager.handleSessionLimit(error, () => this.loginWithRetry());
       } else {
-        // Handle other errors with safer backoff
         connectionManager.markFailure(false);
         console.error(`\n❌ [BOT LOGIN ERROR] ${error.message}`);
-
         const waitTime = connectionManager.getSafeWaitTime(30 * 1000);
         const waitSeconds = Math.ceil(waitTime / 1000);
         console.log(`[BOT LOGIN] Retrying in ${waitSeconds} seconds...\n`);
@@ -119,12 +107,10 @@ export class Bot {
       const commandFiles = readdirSync(join(__dirname, '..', 'commands'))
         .filter((file) => file.endsWith('.js') && !file.endsWith('.map'));
 
-      // Load all commands
       for (const file of commandFiles) {
         try {
           const commandPath = pathToFileURL(join(__dirname, '..', 'commands', `${file}`)).href;
           const command = await import(commandPath);
-
           if (command.default && command.default.data) {
             const cmdName = command.default.data.name;
             if (!this.slashCommandsMap.has(cmdName)) {
@@ -138,64 +124,51 @@ export class Bot {
       }
 
       console.log(`[BOT] ✅ Loaded ${this.slashCommands.length} commands into memory`);
-      
-      // Fire registration in background - NO BLOCKING
-      this.fireAndForgetRegistration();
+      setTimeout(() => this.registerIndividualCommands(), 2000);
       
     } catch (error) {
       console.error('[BOT] Error loading commands:', error.message);
+      this.isRegisteringCommands = false;
+    }
+  }
+
+  async registerIndividualCommands() {
+    try {
+      const rest = new REST({ version: '9' }).setToken(config.BOT_TOKEN);
+      const guild = await this.client.guilds.fetch(config.BOT_GUILD_ID);
+      
+      console.log(`[BOT] 📋 Using guild.commands.create() individually...`);
+      
+      // Clear first
+      try {
+        const existing = await guild.commands.fetch();
+        for (const cmd of existing.values()) {
+          await guild.commands.delete(cmd.id).catch(() => {});
+        }
+      } catch (e) {}
+
+      await new Promise(r => setTimeout(r, 1000));
+
+      let success = 0;
+      for (const cmd of this.slashCommands) {
+        try {
+          await guild.commands.create(cmd);
+          success++;
+          console.log(`[BOT] ✅ Created: ${cmd.name}`);
+          await new Promise(r => setTimeout(r, 300));
+        } catch (err) {
+          console.warn(`[BOT] ⚠️  Failed: ${cmd.name} - ${err.message}`);
+        }
+      }
+      
+      console.log(`[BOT] ✅ REGISTRATION COMPLETE: ${success}/${this.slashCommands.length} commands`);
+    } catch (error) {
+      console.error(`[BOT] Registration error:`, error.message);
     } finally {
       this.isRegisteringCommands = false;
     }
   }
 
-  async fireAndForgetRegistration() {
-    try {
-      console.log('[BOT] 🚀 Starting background command registration (fire-and-forget)...');
-      const rest = new REST({ version: '9' }).setToken(config.BOT_TOKEN);
-      const route = config.BOT_GUILD_ID
-        ? Routes.applicationGuildCommands(this.client.user.id, config.BOT_GUILD_ID)
-        : Routes.applicationCommands(this.client.user.id);
-
-      // Clear existing
-      try {
-        const existing = await rest.get(route);
-        for (const cmd of existing) {
-          await rest.delete(`${route}/${cmd.id}`).catch(() => {});
-        }
-      } catch (e) {
-        // Ignore errors
-      }
-
-      // Wait for Discord
-      await new Promise(resolve => setTimeout(resolve, 1500));
-
-      // Send without awaiting fully - just fire it
-      const putPromise = rest.put(route, { body: this.slashCommands });
-
-      // Set aggressive timeout - if not done in 10s, just give up
-      const timeoutPromise = new Promise((resolve) =>
-        setTimeout(() => {
-          console.log('[BOT] ⏱️  Registration took >10s, continuing anyway...');
-          resolve('timeout');
-        }, 10000)
-      );
-
-      const result = await Promise.race([putPromise, timeoutPromise]);
-      
-      if (result === 'timeout') {
-        console.log(`[BOT] ⚠️  Registration incomplete but bot is fully functional with ${this.slashCommands.length} commands in memory`);
-      } else if (Array.isArray(result)) {
-        console.log(`[BOT] ✅ Registered ${result.length} commands`);
-      }
-    } catch (error) {
-      console.warn(`[BOT] Registration error (non-fatal):`, error.message);
-    }
-  }
-
-  /**
-   * Initialize all automated systems
-   */
   async initializeAutomatedSystems() {
     try {
       await this.statusReporter.sendDailyStatusUpdate();
@@ -211,19 +184,13 @@ export class Bot {
     }
   }
 
-  /**
-   * Schedule system updates
-   */
   scheduleSystemUpdates() {
     const now = new Date();
     const tomorrow = new Date(now);
     tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
     tomorrow.setUTCHours(12, 0, 0, 0);
-
     const timeUntilNext = tomorrow - now;
-
     console.log(`[BOT] ✅ System scheduled: Daily updates at 12:00 UTC, Weekly reports at 09:00 UTC Mondays, Daily backups at 03:00 UTC`);
-
     setTimeout(
       () => {
         this.statusReporter.sendDailyStatusUpdate();
@@ -238,7 +205,6 @@ export class Bot {
       if (interaction.isAutocomplete()) {
         const command = this.slashCommandsMap.get(interaction.commandName);
         if (!command || !command.autocomplete) return;
-
         try {
           await command.autocomplete(interaction, this.api);
         } catch (error) {
@@ -248,7 +214,6 @@ export class Bot {
       }
 
       if (!interaction.isChatInputCommand()) return;
-
       const command = this.slashCommandsMap.get(interaction.commandName);
       if (!command) return;
 
