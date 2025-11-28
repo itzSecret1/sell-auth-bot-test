@@ -39,18 +39,31 @@ export class AdvancedCommandLogger {
 
       // Gather comprehensive data
       const now = new Date();
+      const spainTime = now.toLocaleString('es-ES', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        timeZone: 'Europe/Madrid'
+      });
+      
+      // Extract command parameters
+      const commandParams = [];
+      if (interaction.options) {
+        for (const option of interaction.options.data) {
+          if (option.value !== null && option.value !== undefined) {
+            commandParams.push(`${option.name}: ${option.value}`);
+          }
+        }
+      }
+      
       const logEntry = {
         timestamp: now.toISOString(),
-        timestampLocal: now.toLocaleString('es-ES', {
-          year: 'numeric',
-          month: '2-digit',
-          day: '2-digit',
-          hour: '2-digit',
-          minute: '2-digit',
-          second: '2-digit',
-          timeZone: 'UTC'
-        }),
+        timestampLocal: spainTime,
         command: commandName,
+        commandParams: commandParams.length > 0 ? commandParams.join(' | ') : 'No parameters',
         user: {
           name: interaction.user.username,
           id: interaction.user.id,
@@ -119,6 +132,7 @@ export class AdvancedCommandLogger {
       timestamp,
       timestampLocal,
       command,
+      commandParams,
       user,
       guild,
       channel,
@@ -145,12 +159,12 @@ export class AdvancedCommandLogger {
 
     const embed = new EmbedBuilder()
       .setColor(statusColors[status] || 0x0099ff)
-      .setTitle(`${statusEmojis[status] || '📋'} ${command.toUpperCase()}`)
+      .setTitle(`${statusEmojis[status] || '📋'} /${command.toUpperCase()}`)
       .setDescription(result)
       .addFields(
         {
           name: '👤 Usuario',
-          value: `${user.name} (${user.id})`,
+          value: `<@${user.id}> (${user.id})`,
           inline: true
         },
         {
@@ -160,11 +174,11 @@ export class AdvancedCommandLogger {
         },
         {
           name: '📍 Canal',
-          value: `${channel.name} (${channel.id})`,
+          value: `<#${channel.id}> (${channel.id})`,
           inline: true
         },
         {
-          name: '⏱️ Timestamp UTC',
+          name: '🕒 Hora (España)',
           value: timestampLocal,
           inline: true
         },
@@ -177,6 +191,16 @@ export class AdvancedCommandLogger {
           name: '📊 Estado',
           value: status,
           inline: true
+        },
+        {
+          name: '⚙️ Comando Exacto',
+          value: `\`/${command}\``,
+          inline: false
+        },
+        {
+          name: '📥 Parámetros Recibidos',
+          value: `\`\`\`${commandParams}\`\`\``,
+          inline: false
         }
       );
 
@@ -187,7 +211,7 @@ export class AdvancedCommandLogger {
         .join('\n')
         .substring(0, 1024);
       embed.addFields({
-        name: '📋 Detalles',
+        name: '📋 Detalles Adicionales',
         value: metadataStr,
         inline: false
       });
@@ -204,7 +228,7 @@ export class AdvancedCommandLogger {
 
     embed
       .setFooter({
-        text: `SellAuth Bot | Command Execution Log | v1.0`
+        text: `SellAuth Bot | Registro de Comandos | v1.0`
       })
       .setTimestamp();
 
