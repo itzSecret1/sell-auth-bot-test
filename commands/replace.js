@@ -375,27 +375,55 @@ export default {
         });
       }
 
-      // Create response embed - Show ALL items
+      // Create response embed - Show ALL items with multiple fields if needed
       const embed = new EmbedBuilder().setColor(0x00aa00).setTitle(`✅ Items Extraídos (${removedItems.length})`);
 
-      let itemsText = '';
-      for (let i = 0; i < removedItems.length; i++) {
-        const itemLine = `${i + 1}. ${removedItems[i].substring(0, 100)}\n`;
-        if ((itemsText + itemLine).length <= 1024) {
-          itemsText += itemLine;
-        } else {
-          break;
-        }
-      }
-
-      embed.addFields([
+      const fields = [
         { name: '🏪 Producto', value: productData.productName, inline: true },
         { name: '🎮 Variante', value: variantData.name, inline: true },
         { name: '📦 Cantidad', value: quantity.toString(), inline: true },
-        { name: '📊 Stock Restante', value: remainingStock.toString(), inline: true },
-        { name: `📋 Items Extraídos (${removedItems.length} Total)`, value: itemsText || 'N/A', inline: false }
-      ]);
+        { name: '📊 Stock Restante', value: remainingStock.toString(), inline: true }
+      ];
 
+      // Split items into multiple fields if needed (Discord limit: 1024 chars per field)
+      let currentField = '';
+      let fieldNumber = 1;
+      
+      for (let i = 0; i < removedItems.length; i++) {
+        const itemLine = `${i + 1}. ${removedItems[i].substring(0, 100)}\n`;
+        
+        // If adding this line would exceed 1024 chars, start a new field
+        if ((currentField + itemLine).length > 1024 && currentField.length > 0) {
+          fields.push({
+            name: `📋 Items - Parte ${fieldNumber}`,
+            value: currentField,
+            inline: false
+          });
+          currentField = itemLine;
+          fieldNumber++;
+        } else {
+          currentField += itemLine;
+        }
+      }
+      
+      // Add final field with remaining items
+      if (currentField.length > 0) {
+        if (fieldNumber === 1) {
+          fields.push({
+            name: `📋 Items Extraídos (${removedItems.length} Total)`,
+            value: currentField,
+            inline: false
+          });
+        } else {
+          fields.push({
+            name: `📋 Items - Parte ${fieldNumber}`,
+            value: currentField,
+            inline: false
+          });
+        }
+      }
+
+      embed.addFields(fields);
       await interaction.editReply({ embeds: [embed] });
 
       // Log success
