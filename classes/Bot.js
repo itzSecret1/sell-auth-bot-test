@@ -30,7 +30,6 @@ export class Bot {
     this.cooldowns = new Collection();
     this.queues = new Collection();
     this.isRegisteringCommands = false;
-    this.registrationInProgress = false;
 
     // Create status reporter for staff notifications
     this.statusReporter = createStatusReporter(client);
@@ -48,7 +47,7 @@ export class Bot {
 
     this.client.on('ready', () => {
       console.log(`${this.client.user.username} ready!`);
-      if (!this.isRegisteringCommands && !this.registrationInProgress) {
+      if (!this.isRegisteringCommands) {
         this.registerSlashCommands();
       }
 
@@ -111,13 +110,12 @@ export class Bot {
 
   async registerSlashCommands() {
     // Prevent multiple concurrent registrations
-    if (this.isRegisteringCommands || this.registrationInProgress) {
+    if (this.isRegisteringCommands) {
       console.log('[BOT] ⏳ Command registration already in progress, skipping...');
       return;
     }
 
     this.isRegisteringCommands = true;
-    this.registrationInProgress = true;
 
     try {
       // CRITICAL: Clear array to prevent duplicates on reconnect
@@ -127,7 +125,7 @@ export class Bot {
       const commandFiles = readdirSync(join(__dirname, '..', 'commands'))
         .filter((file) => file.endsWith('.js') && !file.endsWith('.map'));
 
-      console.log(`[BOT] 📂 Found ${commandFiles.length} command files`);
+      console.log(`[BOT] 📂 Found ${commandFiles.length} command files to load`);
 
       // Load all commands
       for (const file of commandFiles) {
@@ -140,7 +138,7 @@ export class Bot {
 
             // Skip if already loaded
             if (this.slashCommandsMap.has(cmdName)) {
-              console.log(`[BOT] ⚠️  Skipping duplicate command: ${cmdName}`);
+              console.log(`[BOT] ⚠️  Skipping duplicate: ${cmdName}`);
               continue;
             }
 
@@ -149,77 +147,100 @@ export class Bot {
             console.log(`[BOT] ✅ Loaded command: ${cmdName}`);
           }
         } catch (err) {
-          console.error(`[BOT] ❌ Error loading command ${file}:`, err.message);
+          console.error(`[BOT] ❌ Error loading ${file}:`, err.message);
         }
       }
 
-      console.log(`[BOT] 📤 Loaded ${this.slashCommands.length} slash commands into memory`);
+      console.log(`[BOT] 📤 Loaded ${this.slashCommands.length} commands into memory`);
       
       if (this.slashCommands.length === 0) {
         console.error('[BOT] ❌ ERROR: No commands loaded!');
         this.isRegisteringCommands = false;
-        this.registrationInProgress = false;
         return;
       }
 
-      // Start registration in background (non-blocking)
-      setTimeout(() => this.performRegistrationWithRetry(), 1000);
+      // Start registration in background
+      console.log('[BOT] ⏰ Starting registration in 2 seconds...');
+      setTimeout(() => this.registerCommandsViaREST(), 2000);
       
     } catch (error) {
       console.error('[BOT] Error loading commands:', error.message);
       this.isRegisteringCommands = false;
-      this.registrationInProgress = false;
     }
   }
 
-  async performRegistrationWithRetry(attempt = 1) {
+  async registerCommandsViaREST() {
     try {
-      console.log(`\n[BOT] 🔄 Command registration attempt #${attempt}...`);
-      
-      const guild = this.client.guilds.cache.get(config.BOT_GUILD_ID);
-      if (!guild) {
-        throw new Error(`Guild not found: ${config.BOT_GUILD_ID}`);
+      console.log('\n[BOT] 🔴 STEP 1: Initializing REST client...');
+      const rest = new REST({ version: '9' }).setToken(config.BOT_TOKEN);
+      console.log('[BOT] ✅ REST client initialized');
+
+      console.log('[BOT] 🔴 STEP 2: Setting up route...');
+      const route = config.BOT_GUILD_ID
+        ? Routes.applicationGuildCommands(this.client.user.id, config.BOT_GUILD_ID)
+        : Routes.applicationCommands(this.client.user.id);
+      console.log(`[BOT] ✅ Route ready: ${route}`);
+
+      console.log('[BOT] 🔴 STEP 3: Fetching existing commands...');
+      let existingCommands = [];
+      try {
+        existingCommands = await rest.get(route);
+        console.log(`[BOT] ✅ Found ${existingCommands.length} existing commands`);
+      } catch (e) {
+        console.warn(`[BOT] ⚠️  Could not fetch existing:`, e.message);
       }
 
-      console.log(`[BOT] 🏢 Guild: ${guild.name} (${guild.id})`);
-      console.log(`[BOT] 📋 Registering ${this.slashCommands.length} commands via guild.commands.set()...`);
+      console.log('[BOT] 🔴 STEP 4: Deleting old commands...');
+      for (const cmd of existingCommands) {
+        try {
+          await rest.delete(`${route}/${cmd.id}`);
+          console.log(`[BOT] ✅ Deleted: ${cmd.name}`);
+        } catch (e) {
+          console.warn(`[BOT] ⚠️  Could not delete ${cmd.name}:`, e.message);
+        }
+      }
+      console.log('[BOT] ✅ Old commands cleanup complete');
 
-      // Single unified call with timeout
-      const registrationPromise = guild.commands.set(this.slashCommands);
-      
-      // 30 second timeout - if it takes longer, give up and continue anyway
-      const result = await Promise.race([
-        registrationPromise,
-        new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Registration timeout after 30s')), 30000)
-        )
-      ]);
+      console.log('[BOT] 🔴 STEP 5: Waiting 2 seconds for Discord sync...');
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      console.log('[BOT] ✅ Sync wait complete');
 
-      console.log(`\n[BOT] ✅ REGISTRATION COMPLETE: ${result.size}/${this.slashCommands.length} commands registered`);
-      this.registrationInProgress = false;
+      console.log(`[BOT] 🔴 STEP 6: Registering ${this.slashCommands.length} commands...`);
+      console.log(`[BOT] 📊 Commands to register: ${this.slashCommands.map(c => c.name).join(', ')}`);
+
+      // Create timeout wrapper
+      const registrationTimeout = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('REST registration timeout after 60s')), 60000)
+      );
+
+      const registrationPromise = (async () => {
+        console.log('[BOT] 🔴 STEP 7: Calling rest.put() with all 21 commands...');
+        console.log(`[BOT] 📋 Payload size: ${JSON.stringify(this.slashCommands).length} bytes`);
+        
+        const result = await rest.put(route, { body: this.slashCommands });
+        
+        console.log(`[BOT] ✅ rest.put() completed`);
+        console.log(`[BOT] 📊 Result: ${Array.isArray(result) ? result.length : 0} commands registered`);
+        return result;
+      })();
+
+      const result = await Promise.race([registrationPromise, registrationTimeout]);
+
+      console.log(`\n[BOT] 🎉 SUCCESS: ${result.length}/${this.slashCommands.length} commands registered!`);
+      this.isRegisteringCommands = false;
 
     } catch (error) {
-      console.error(`[BOT] ❌ Registration error (attempt #${attempt}):`, error.message);
-
-      // Don't retry on timeout - just continue anyway
-      if (error.message.includes('timeout')) {
-        console.log(`[BOT] ⚠️  Registration timeout, but bot is still fully functional`);
-        console.log(`[BOT] 💡 Commands are loaded in memory and will work via slash commands`);
-        this.registrationInProgress = false;
-        return;
+      console.error(`\n[BOT] ❌ Registration failed: ${error.message}`);
+      console.error(`[BOT] Error type: ${error.constructor.name}`);
+      
+      if (error.code) {
+        console.error(`[BOT] Error code: ${error.code}`);
+      }
+      if (error.status) {
+        console.error(`[BOT] HTTP status: ${error.status}`);
       }
 
-      // Retry on other errors
-      if (attempt < 2) {
-        const waitTime = 5000;
-        console.log(`[BOT] 🔄 Retrying in ${waitTime / 1000} seconds...`);
-        setTimeout(() => this.performRegistrationWithRetry(attempt + 1), waitTime);
-      } else {
-        console.error(`[BOT] ℹ️  Skipping further registration attempts`);
-        console.log(`[BOT] ℹ️  Bot is fully functional - all 21 commands are in memory`);
-        this.registrationInProgress = false;
-      }
-    } finally {
+      console.log(`[BOT] ℹ️  All ${this.slashCommands.length} commands are loaded in memory and will work`);
       this.isRegisteringCommands = false;
     }
   }
