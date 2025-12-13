@@ -140,3 +140,4 @@ Después de agregar las variables:
 - Ver `RAILWAY_SETUP_GUIDE.md` para guía completa de configuración
 - Ver `RAILWAY_ENV_VARIABLES.md` para más detalles sobre cada variable
 
+
