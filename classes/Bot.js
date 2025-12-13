@@ -910,7 +910,7 @@ export class Bot {
             const ticketId = ticket.id;
             const serviceName = serviceInfo.service.toLowerCase();
             const quantity = serviceInfo.quantity;
-            const newName = `replace-${serviceName}-x${quantity}-acc-${ticketId.toLowerCase()}`;
+            const newName = `replace-${serviceName}-x${quantity}-acc-${ticketId.toLowerCase()}-🔧`;
             
             await message.channel.setName(newName);
             
