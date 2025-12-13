@@ -17,6 +17,7 @@ import { createPredictiveAlerts } from '../utils/PredictiveAlerts.js';
 import { TicketManager } from '../utils/TicketManager.js';
 import { GuildConfig } from '../utils/GuildConfig.js';
 import { CommandSpamDetector } from '../utils/CommandSpamDetector.js';
+import { SetupWizard } from '../utils/SetupWizard.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -254,12 +255,18 @@ export class Bot {
         return;
       }
 
-      // Manejar interacciones de botones de tickets
+      // Manejar interacciones de botones
       if (interaction.isButton()) {
         try {
+          // Verificar si es un botón de setup
+          if (interaction.customId.startsWith('setup_')) {
+            await this.handleSetupButton(interaction);
+            return;
+          }
+          // Manejar botones de tickets
           await this.handleTicketButton(interaction);
         } catch (error) {
-          console.error('[TICKET BUTTON] Error:', error);
+          console.error('[BUTTON] Error:', error);
           if (!interaction.replied && !interaction.deferred) {
             await interaction.reply({
               content: `❌ Error: ${error.message}`,
@@ -270,12 +277,18 @@ export class Bot {
         return;
       }
 
-      // Manejar modales (para razón de cierre)
+      // Manejar modales
       if (interaction.isModalSubmit()) {
         try {
+          // Verificar si es un modal de setup
+          if (interaction.customId.startsWith('setup_modal_')) {
+            await this.handleSetupModal(interaction);
+            return;
+          }
+          // Manejar modales de tickets
           await this.handleTicketModal(interaction);
         } catch (error) {
-          console.error('[TICKET MODAL] Error:', error);
+          console.error('[MODAL] Error:', error);
           if (!interaction.replied && !interaction.deferred) {
             await interaction.reply({
               content: `❌ Error: ${error.message}`,
