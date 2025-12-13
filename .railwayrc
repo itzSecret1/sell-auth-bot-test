@@ -1,0 +1,4 @@
+# Railway Configuration
+# This file ensures proper Node.js module resolution
+NODE_ENV=production
+NODE_OPTIONS=--experimental-modules

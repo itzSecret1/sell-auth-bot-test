@@ -1,0 +1,36 @@
+{
+  "type": "module",
+  "name": "sellauth-discord-bot",
+  "version": "0.0.1",
+  "description": "A Discord bot for managing SellAuth shops with full product variant support and real-time inventory management",
+  "main": "index.js",
+  "author": "SellAuth",
+  "private": true,
+  "license": "MIT",
+  "homepage": "https://github.com/itzSecret1/sell-auth-bot-test",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/itzSecret1/sell-auth-bot-test.git"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
+  },
+  "scripts": {
+    "dev": "nodemon index.js",
+    "start": "node index.js",
+    "format": "npx prettier --write \"**/*.js\" --config .prettierrc"
+  },
+  "dependencies": {
+    "@octokit/rest": "^22.0.1",
+    "@vitalets/google-translate-api": "^9.2.1",
+    "axios": "^1.7.7",
+    "chokidar": "^4.0.3",
+    "discord.js": "^14.15.3",
+    "dotenv": "^16.4.5"
+  },
+  "devDependencies": {
+    "nodemon": "^2.0.22",
+    "prettier": "^3.3.1"
+  }
+}

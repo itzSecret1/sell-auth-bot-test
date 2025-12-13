@@ -1,0 +1,6 @@
+{
+  "name": "SellAuth Discord Bot",
+  "description": "A Discord bot for managing SellAuth shops",
+  "repository": "https://github.com/sellauth-com/sellauth-discord-bot",
+  "keywords": ["sellauth", "discordjs"]
+}
