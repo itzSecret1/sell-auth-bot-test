@@ -296,8 +296,8 @@ export class Bot {
                 
                 while (!registered && retries <= maxRetries) {
                   try {
-                    // Usar REST API directamente en lugar de guild.commands.create()
-                    const route = Routes.applicationGuildCommands(this.client.user.id, guild.id);
+                    // Usar REST API directamente - POST para crear comando individual
+                    const route = `/applications/${this.client.user.id}/guilds/${guild.id}/commands`;
                     const createPromise = rest.post(route, { body: cmd });
                     const cmdTimeoutPromise = new Promise((_, reject) => 
                       setTimeout(() => reject(new Error(`Command ${cmd.name} timeout (8s)`)), 8000)
