@@ -1,4 +1,4 @@
-import { Collection, Events, REST, Routes, ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder } from 'discord.js';
+import { Collection, Events, REST, Routes, ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder, EmbedBuilder } from 'discord.js';
 import { readdirSync } from 'fs';
 import { fileURLToPath, pathToFileURL } from 'url';
 import { join, dirname } from 'path';
@@ -296,7 +296,9 @@ export class Bot {
                 
                 while (!registered && retries <= maxRetries) {
                   try {
-                    const createPromise = guild.commands.create(cmd);
+                    // Usar REST API directamente en lugar de guild.commands.create()
+                    const route = Routes.applicationGuildCommand(this.client.user.id, guild.id);
+                    const createPromise = rest.post(route, { body: cmd });
                     const cmdTimeoutPromise = new Promise((_, reject) => 
                       setTimeout(() => reject(new Error(`Command ${cmd.name} timeout (8s)`)), 8000)
                     );
@@ -317,15 +319,15 @@ export class Bot {
                     const cmdTime = ((Date.now() - startCmdTime) / 1000).toFixed(2);
                     
                     // Si es rate limit, esperar y reintentar
-                    if (err.code === 50035 || err.status === 429 || err.message.includes('rate limit')) {
-                      const waitTime = 5000 + (retries * 2000);
+                    if (err.code === 50035 || err.status === 429 || err.message?.includes('rate limit') || err.retry_after) {
+                      const waitTime = err.retry_after ? (err.retry_after * 1000) : (5000 + (retries * 2000));
                       console.log(`[BOT] ⏳ Rate limited on ${cmd.name}, waiting ${waitTime/1000}s (retry ${retries}/${maxRetries})...`);
                       await new Promise(r => setTimeout(r, waitTime));
                       continue;
                     }
                     
                     // Si es timeout y aún tenemos reintentos, intentar de nuevo
-                    if (err.message.includes('timeout') && retries < maxRetries) {
+                    if (err.message?.includes('timeout') && retries < maxRetries) {
                       console.warn(`[BOT] ⏱️  Command ${cmd.name} timed out, retrying (${retries}/${maxRetries})...`);
                       await new Promise(r => setTimeout(r, 2000));
                       continue;
@@ -333,7 +335,7 @@ export class Bot {
                     
                     // Si llegamos aquí, el comando falló definitivamente
                     failed++;
-                    console.warn(`[BOT] ⚠️  Failed to create ${cmd.name} in ${guild.name} (${cmdTime}s): ${err.message}`);
+                    console.warn(`[BOT] ⚠️  Failed to create ${cmd.name} in ${guild.name} (${cmdTime}s): ${err.message || err}`);
                     break;
                   }
                 }
