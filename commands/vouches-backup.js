@@ -38,13 +38,8 @@ function saveBackup(vouchesData) {
 
 export default {
   data: new SlashCommandBuilder()
-    .setName('backup')
-    .setDescription('Backup system commands')
-    .addSubcommand((sub) =>
-      sub
-        .setName('vouches')
-        .setDescription('Backup all vouches to a file')
-    ),
+    .setName('vouches-backup')
+    .setDescription('Backup all vouches to a file (Admin only)'),
 
   onlyWhitelisted: true,
   requiredRole: 'admin',
@@ -53,20 +48,17 @@ export default {
     try {
       await interaction.deferReply({ ephemeral: true });
 
-      const subcommand = interaction.options.getSubcommand();
+      const vouchesData = loadVouches();
+      const totalVouches = vouchesData.vouches.length;
 
-      if (subcommand === 'vouches') {
-        const vouchesData = loadVouches();
-        const totalVouches = vouchesData.vouches.length;
+      if (totalVouches === 0) {
+        await interaction.editReply({
+          content: '❌ No hay vouches para hacer backup'
+        });
+        return;
+      }
 
-        if (totalVouches === 0) {
-          await interaction.editReply({
-            content: '❌ No hay vouches para hacer backup'
-          });
-          return;
-        }
-
-        const backupFileName = saveBackup(vouchesData);
+      const backupFileName = saveBackup(vouchesData);
 
         const embed = new EmbedBuilder()
           .setColor(0x00ff00)
@@ -95,8 +87,7 @@ export default {
           embeds: [embed]
         });
 
-        console.log(`[VOUCHES-BACKUP] ✅ Backup creado: ${backupFileName} (${totalVouches} vouches)`);
-      }
+      console.log(`[VOUCHES-BACKUP] ✅ Backup creado: ${backupFileName} (${totalVouches} vouches)`);
 
     } catch (error) {
       console.error('[VOUCHES-BACKUP] Error:', error);
