@@ -872,24 +872,66 @@ export class Bot {
           'account not working',
           'acc not working',
           'account broken',
-          'acc broken'
+          'acc broken',
+          'not working',
+          'doesn\'t work',
+          'don\'t work'
         ];
         
         const hasAccountIssue = accountIssues.some(phrase => content.includes(phrase));
         
-        // Si detecta problema de cuenta y no hay fotos, pedir invoice
-        if (hasAccountIssue && !hasImages) {
-          await message.channel.send({
-            content: `📋 **Invoice Required**\n\nPlease provide your invoice number and a screenshot as proof.`
-          });
+        // Si detecta problema de cuenta, preguntar qué cuenta específicamente
+        if (hasAccountIssue) {
+          // Verificar si ya preguntamos antes (evitar spam)
+          const lastMessages = await message.channel.messages.fetch({ limit: 5 });
+          const alreadyAsked = lastMessages.some(msg => 
+            msg.author.bot && 
+            msg.content.includes('What account') || 
+            msg.content.includes('Qué cuenta')
+          );
+          
+          if (!alreadyAsked) {
+            await message.channel.send({
+              content: `❓ **What account?**\n\nPlease specify which account is not working.`
+            });
+          }
           return;
         }
         
-        // Si hay fotos pero no se detecta invoice, también pedir invoice
+        // Si el usuario especifica una cuenta (detectar respuestas como "this account", "my account", o menciona algo específico)
+        const accountSpecified = this.detectAccountSpecification(content);
+        if (accountSpecified && !ticket.accountSpecified) {
+          // Renombrar ticket a "replace-✅-tkt-XXXX"
+          try {
+            const ticketId = ticket.id;
+            const newName = `replace-✅-${ticketId.toLowerCase()}`;
+            await message.channel.setName(newName);
+            
+            // Marcar que ya se especificó la cuenta
+            ticket.accountSpecified = true;
+            const { saveTickets } = await import('../utils/TicketManager.js');
+            // Necesitamos acceso a saveTickets, pero está en el scope privado
+            // Por ahora solo renombramos
+            
+            console.log(`[TICKET] Ticket ${ticketId} renombrado a "${newName}" después de especificar cuenta`);
+          } catch (renameError) {
+            console.error('[TICKET] Error al renombrar ticket:', renameError);
+          }
+        }
+        
+        // Si hay fotos pero no se detecta invoice, pedir invoice
         if (hasImages && !this.detectInvoice(content)) {
-          await message.channel.send({
-            content: `📋 **Invoice Required**\n\nPlease provide your invoice number along with the screenshot.`
-          });
+          const lastMessages = await message.channel.messages.fetch({ limit: 5 });
+          const alreadyAsked = lastMessages.some(msg => 
+            msg.author.bot && 
+            msg.content.includes('Invoice Required')
+          );
+          
+          if (!alreadyAsked) {
+            await message.channel.send({
+              content: `📋 **Invoice Required**\n\nPlease provide your invoice number along with the screenshot.`
+            });
+          }
           return;
         }
         
@@ -937,6 +979,18 @@ export class Bot {
         console.error('[TICKET MESSAGE] Error procesando mensaje:', error);
       }
     });
+  }
+
+  detectAccountSpecification(text) {
+    // Detectar si el usuario especificó una cuenta
+    // Patrones como: "this account", "my account", "the account", o cualquier texto después de "account"
+    const patterns = [
+      /(?:this|my|the)\s+account/i,
+      /account\s+(?:is|doesn't|don't|not)/i,
+      /account\s+[\w\s]+/i
+    ];
+    
+    return patterns.some(pattern => pattern.test(text));
   }
 
   detectInvoice(text) {

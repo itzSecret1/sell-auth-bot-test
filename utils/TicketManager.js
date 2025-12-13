@@ -104,9 +104,17 @@ export class TicketManager {
         });
       }
 
+      // Crear canal del ticket con formato específico
+      let channelName;
+      if (category.toLowerCase() === 'replaces') {
+        channelName = `replaces-tkt-${String(ticketsData.nextId).padStart(4, '0')}`;
+      } else {
+        channelName = `${category.toLowerCase()}-${user.username.toLowerCase()}`;
+      }
+
       // Crear canal del ticket
       const ticketChannel = await guild.channels.create({
-        name: `${category.toLowerCase()}-${user.username.toLowerCase()}`,
+        name: channelName,
         type: ChannelType.GuildText,
         parent: ticketCategory.id,
         permissionOverwrites: permissionOverwrites
