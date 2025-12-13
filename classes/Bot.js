@@ -443,23 +443,37 @@ export class Bot {
 
     // Ratings de servicio
     if (customId.startsWith('rating_service_')) {
-      await interaction.deferUpdate();
       const parts = customId.split('_');
       const rating = parseInt(parts[2]);
       const ticketId = parts.slice(3).join('_');
       
-      await TicketManager.processServiceRating(interaction.guild, ticketId, rating);
+      try {
+        await interaction.deferUpdate();
+        await TicketManager.processServiceRating(interaction.guild, ticketId, rating, interaction.user.id);
+      } catch (error) {
+        await interaction.reply({
+          content: `❌ ${error.message}`,
+          ephemeral: true
+        }).catch(() => {});
+      }
       return;
     }
 
     // Ratings de staff
     if (customId.startsWith('rating_staff_')) {
-      await interaction.deferUpdate();
       const parts = customId.split('_');
       const rating = parseInt(parts[2]);
       const ticketId = parts.slice(3).join('_');
       
-      await TicketManager.processStaffRating(interaction.guild, ticketId, rating);
+      try {
+        await interaction.deferUpdate();
+        await TicketManager.processStaffRating(interaction.guild, ticketId, rating, interaction.user.id);
+      } catch (error) {
+        await interaction.reply({
+          content: `❌ ${error.message}`,
+          ephemeral: true
+        }).catch(() => {});
+      }
       return;
     }
   }

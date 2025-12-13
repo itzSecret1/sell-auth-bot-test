@@ -293,8 +293,69 @@ export class TicketManager {
       // Guardar razón si existe
       if (closeReason) {
         ticket.closeReason = closeReason;
-        saveTickets();
       }
+
+      // Marcar ticket como pendiente de cierre (pero no cerrado aún)
+      ticket.pendingClose = true;
+      ticket.closed = false; // Aún no está cerrado
+      saveTickets();
+
+      // BLOQUEAR el canal para que el usuario no pueda escribir
+      // Solo el staff puede escribir, el usuario solo puede hacer reviews
+      const user = await guild.members.fetch(ticket.userId);
+      const guildConfig = GuildConfig.getConfig(guild.id);
+      const staffRoleId = guildConfig?.staffRoleId;
+      const adminRoleId = guildConfig?.adminRoleId;
+
+      // Actualizar permisos del canal
+      const permissionOverwrites = [
+        {
+          id: guild.id,
+          deny: [PermissionFlagsBits.ViewChannel]
+        },
+        {
+          id: user.id,
+          allow: [PermissionFlagsBits.ViewChannel], // Puede ver pero NO escribir
+          deny: [PermissionFlagsBits.SendMessages]
+        }
+      ];
+
+      if (staffRoleId) {
+        permissionOverwrites.push({
+          id: staffRoleId,
+          allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]
+        });
+      }
+
+      if (adminRoleId) {
+        permissionOverwrites.push({
+          id: adminRoleId,
+          allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ManageChannels]
+        });
+      }
+
+      await channel.permissionOverwrites.set(permissionOverwrites);
+
+      // Enviar mensaje informando que el ticket está cerrado y necesita reviews
+      const closeNoticeEmbed = new EmbedBuilder()
+        .setColor(0xff9900)
+        .setTitle('🔒 Ticket Cerrado - Reviews Obligatorias')
+        .setDescription(`Este ticket ha sido cerrado por el staff.\n\n**⚠️ IMPORTANTE:** Debes completar las reviews obligatorias para finalizar el proceso.`)
+        .addFields(
+          {
+            name: '📝 Instrucciones',
+            value: '1. Completa la **Service Rating** (obligatoria)\n2. Completa la **Staff Rating** (obligatoria)\n3. El ticket se cerrará automáticamente después de completar ambas reviews',
+            inline: false
+          },
+          {
+            name: '⏰ Tiempo límite',
+            value: 'Si no completas las reviews en **24 horas**, el ticket se cerrará automáticamente.',
+            inline: false
+          }
+        )
+        .setTimestamp();
+
+      await channel.send({ embeds: [closeNoticeEmbed] });
 
       // Mostrar Service Rating
       const serviceRatingEmbed = new EmbedBuilder()
@@ -336,10 +397,20 @@ export class TicketManager {
   /**
    * Procesar rating de servicio
    */
-  static async processServiceRating(guild, ticketId, rating) {
+  static async processServiceRating(guild, ticketId, rating, userId) {
     try {
       const ticket = ticketsData.tickets[ticketId];
       if (!ticket) throw new Error('Ticket no encontrado');
+
+      // Verificar que solo el usuario que creó el ticket puede hacer la review
+      if (ticket.userId !== userId) {
+        throw new Error('Solo el usuario que creó el ticket puede hacer las reviews');
+      }
+
+      // Verificar que el ticket esté pendiente de cierre
+      if (!ticket.pendingClose) {
+        throw new Error('Este ticket no está pendiente de reviews');
+      }
 
       ticket.serviceRating = rating;
       saveTickets();
@@ -379,7 +450,7 @@ export class TicketManager {
         });
       }
 
-      // Mostrar Staff Rating
+      // Ahora mostrar Staff Rating (obligatoria)
       const staffRatingEmbed = new EmbedBuilder()
         .setColor(0xffd700)
         .setTitle('★ Staff Rating')
@@ -418,10 +489,25 @@ export class TicketManager {
   /**
    * Procesar rating de staff y cerrar ticket
    */
-  static async processStaffRating(guild, ticketId, rating) {
+  static async processStaffRating(guild, ticketId, rating, userId) {
     try {
       const ticket = ticketsData.tickets[ticketId];
       if (!ticket) throw new Error('Ticket no encontrado');
+
+      // Verificar que solo el usuario que creó el ticket puede hacer la review
+      if (ticket.userId !== userId) {
+        throw new Error('Solo el usuario que creó el ticket puede hacer las reviews');
+      }
+
+      // Verificar que el ticket esté pendiente de cierre
+      if (!ticket.pendingClose) {
+        throw new Error('Este ticket no está pendiente de reviews');
+      }
+
+      // Verificar que ya haya completado la service rating
+      if (!ticket.serviceRating) {
+        throw new Error('Debes completar primero la Service Rating');
+      }
 
       ticket.staffRating = rating;
       saveTickets();
@@ -461,16 +547,28 @@ export class TicketManager {
         });
       }
 
-      // Enviar ratings al canal de ratings
-      await this.sendRatings(guild, ticket);
+      // Verificar que ambas reviews estén completas
+      if (ticket.serviceRating && ticket.staffRating) {
+        // Ambas reviews completas, cerrar el ticket
+        // Enviar ratings al canal de ratings
+        await this.sendRatings(guild, ticket);
 
-      // Obtener el usuario que cerró el ticket
-      const closedByUserId = ticket.closedBy || ticket.claimedBy || 'Sistema';
+        // Obtener el usuario que cerró el ticket
+        const closedByUserId = ticket.closedBy || ticket.claimedBy || 'Sistema';
 
-      // Cerrar ticket después de 3-5 segundos
-      setTimeout(async () => {
-        await this.closeTicket(guild, ticketId, closedByUserId);
-      }, 3000 + Math.random() * 2000);
+        // Cerrar ticket después de 3-5 segundos
+        setTimeout(async () => {
+          await this.closeTicket(guild, ticketId, closedByUserId);
+        }, 3000 + Math.random() * 2000);
+      } else {
+        // Aún falta la service rating, mostrar mensaje
+        const channel = await guild.channels.fetch(ticket.channelId);
+        if (channel) {
+          await channel.send({
+            content: `✅ **Staff Rating completada!**\n\nAhora completa la **Service Rating** para finalizar el proceso.`
+          });
+        }
+      }
 
       return { success: true };
     } catch (error) {
@@ -709,21 +807,27 @@ export class TicketManager {
   }
 
   /**
-   * Verificar y cerrar tickets automáticamente después de 24 horas sin rating
+   * Verificar y cerrar tickets automáticamente después de 24 horas sin completar reviews
    */
   static async checkAutoClose(guild) {
     try {
       const now = new Date();
       for (const [ticketId, ticket] of Object.entries(ticketsData.tickets)) {
+        // Solo verificar tickets pendientes de cierre
+        if (!ticket.pendingClose) continue;
         if (ticket.closed) continue;
-        if (ticket.serviceRating) continue; // Ya tiene rating, no cerrar
+        
+        // Si ya tiene ambas reviews completas, no necesita auto-cierre
+        if (ticket.serviceRating && ticket.staffRating) continue;
+        
         if (!ticket.ratingStartedAt) continue; // Aún no empezó el proceso de rating
 
         const ratingStartTime = new Date(ticket.ratingStartedAt);
         const hoursSinceRatingStart = (now - ratingStartTime) / (1000 * 60 * 60);
 
         if (hoursSinceRatingStart >= 24) {
-          // Han pasado 24 horas sin rating, cerrar automáticamente
+          // Han pasado 24 horas sin completar las reviews, cerrar automáticamente
+          console.log(`[TICKET] Auto-cerrando ticket ${ticketId} después de 24 horas sin completar reviews`);
           await this.closeTicket(guild, ticketId, 'Sistema');
         }
       }
