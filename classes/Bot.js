@@ -571,4 +571,276 @@ export class Bot {
       await TicketManager.showRatings(interaction.guild, ticketId, interaction.member, closeReason);
     }
   }
+
+  async handleSetupButton(interaction) {
+    const { SetupWizard } = await import('../utils/SetupWizard.js');
+    const AUTHORIZED_USER_IDS = ['1190738779015757914', '1407024330633642005'];
+
+    if (!AUTHORIZED_USER_IDS.includes(interaction.user.id)) {
+      await interaction.reply({
+        content: '❌ No tienes permiso para usar este comando.',
+        ephemeral: true
+      });
+      return;
+    }
+
+    const customId = interaction.customId;
+
+    if (customId === 'setup_start_config') {
+      const session = SetupWizard.createSession(interaction.user.id, interaction.guild.id);
+      const stepData = SetupWizard.getStepEmbed(0, session);
+      
+      await interaction.update({
+        embeds: [stepData.embed],
+        components: [stepData.buttons]
+      });
+      return;
+    }
+
+    if (customId === 'setup_cancel') {
+      SetupWizard.deleteSession(interaction.user.id);
+      await interaction.update({
+        content: '❌ Configuración cancelada.',
+        embeds: [],
+        components: []
+      });
+      return;
+    }
+
+    const session = SetupWizard.getSession(interaction.user.id);
+    if (!session) {
+      await interaction.reply({
+        content: '❌ No hay una sesión de configuración activa. Usa `/setup start` para comenzar.',
+        ephemeral: true
+      });
+      return;
+    }
+
+    if (customId === 'setup_next') {
+      if (session.step < 7) {
+        session.step++;
+        const stepData = SetupWizard.getStepEmbed(session.step, session);
+        await interaction.update({
+          embeds: [stepData.embed],
+          components: [stepData.buttons]
+        });
+      }
+      return;
+    }
+
+    if (customId === 'setup_back') {
+      if (session.step > 0) {
+        session.step--;
+        const stepData = SetupWizard.getStepEmbed(session.step, session);
+        await interaction.update({
+          embeds: [stepData.embed],
+          components: [stepData.buttons]
+        });
+      }
+      return;
+    }
+
+    if (customId === 'setup_skip') {
+      session.step++;
+      if (session.step < 8) {
+        const stepData = SetupWizard.getStepEmbed(session.step, session);
+        await interaction.update({
+          embeds: [stepData.embed],
+          components: [stepData.buttons]
+        });
+      } else {
+        await this.finishSetup(interaction, session);
+      }
+      return;
+    }
+
+    if (customId === 'setup_finish') {
+      await this.finishSetup(interaction, session);
+      return;
+    }
+
+    // Botones para seleccionar rol/canal
+    if (customId.startsWith('setup_')) {
+      const stepName = customId.replace('setup_', '');
+      let modal;
+      
+      if (stepName.includes('role')) {
+        const label = stepName === 'admin_role' ? 'Rol de Administrador' :
+                     stepName === 'staff_role' ? 'Rol de Trial Staff' :
+                     stepName === 'customer_role' ? 'Rol de Cliente' :
+                     'Rol de Trial Admin';
+        modal = SetupWizard.createRoleModal(stepName, label);
+      } else {
+        const label = stepName === 'log_channel' ? 'Canal de Logs' :
+                     stepName === 'transcript_channel' ? 'Canal de Transcripts' :
+                     stepName === 'rating_channel' ? 'Canal de Ratings' :
+                     'Canal de Spam/Bans';
+        modal = SetupWizard.createChannelModal(stepName, label);
+      }
+      
+      await interaction.showModal(modal);
+      return;
+    }
+  }
+
+  async handleSetupModal(interaction) {
+    const { SetupWizard } = await import('../utils/SetupWizard.js');
+    const session = SetupWizard.getSession(interaction.user.id);
+    
+    if (!session) {
+      await interaction.reply({
+        content: '❌ No hay una sesión de configuración activa.',
+        ephemeral: true
+      });
+      return;
+    }
+
+    const stepName = interaction.customId.replace('setup_modal_', '');
+    const value = stepName.includes('role') 
+      ? interaction.fields.getTextInputValue('role_id')
+      : interaction.fields.getTextInputValue('channel_id');
+
+    if (!/^\d+$/.test(value)) {
+      await interaction.reply({
+        content: '❌ El ID debe ser un número válido.',
+        ephemeral: true
+      });
+      return;
+    }
+
+    try {
+      if (stepName.includes('role')) {
+        const role = await interaction.guild.roles.fetch(value);
+        if (!role) {
+          await interaction.reply({
+            content: '❌ El rol no existe en este servidor.',
+            ephemeral: true
+          });
+          return;
+        }
+        const configKey = stepName === 'admin_role' ? 'adminRoleId' :
+                         stepName === 'staff_role' ? 'staffRoleId' :
+                         stepName === 'customer_role' ? 'customerRoleId' :
+                         'trialAdminRoleId';
+        session.config[configKey] = value;
+      } else {
+        const channel = await interaction.guild.channels.fetch(value);
+        if (!channel) {
+          await interaction.reply({
+            content: '❌ El canal no existe en este servidor.',
+            ephemeral: true
+          });
+          return;
+        }
+        const configKey = stepName === 'log_channel' ? 'logChannelId' :
+                         stepName === 'transcript_channel' ? 'transcriptChannelId' :
+                         stepName === 'rating_channel' ? 'ratingChannelId' :
+                         'spamChannelId';
+        session.config[configKey] = value;
+      }
+    } catch (error) {
+      await interaction.reply({
+        content: '❌ Error al verificar el ID. Asegúrate de que el rol/canal existe y el bot tiene acceso.',
+        ephemeral: true
+      });
+      return;
+    }
+
+    const stepData = SetupWizard.getStepEmbed(session.step, session);
+    await interaction.reply({
+      content: '✅ Configuración guardada!',
+      embeds: [stepData.embed],
+      components: [stepData.buttons],
+      ephemeral: true
+    });
+  }
+
+  async finishSetup(interaction, session) {
+    const { SetupWizard } = await import('../utils/SetupWizard.js');
+    const { GuildConfig } = await import('../utils/GuildConfig.js');
+    const { EmbedBuilder } = await import('discord.js');
+
+    if (!session.config.adminRoleId || !session.config.staffRoleId) {
+      await interaction.update({
+        content: '❌ Debes configurar al menos el Rol de Administrador y el Rol de Trial Staff.',
+        embeds: [],
+        components: []
+      });
+      return;
+    }
+
+    const guildConfig = GuildConfig.setConfig(session.guildId, {
+      guildId: session.guildId,
+      guildName: interaction.guild.name,
+      adminRoleId: session.config.adminRoleId,
+      staffRoleId: session.config.staffRoleId,
+      customerRoleId: session.config.customerRoleId,
+      logChannelId: session.config.logChannelId,
+      transcriptChannelId: session.config.transcriptChannelId,
+      ratingChannelId: session.config.ratingChannelId,
+      spamChannelId: session.config.spamChannelId,
+      trialAdminRoleId: session.config.trialAdminRoleId,
+      configuredBy: interaction.user.id,
+      configuredByUsername: interaction.user.username
+    });
+
+    const embed = new EmbedBuilder()
+      .setColor(0x00ff00)
+      .setTitle('✅ Bot Configurado Exitosamente')
+      .setDescription(`El bot ha sido configurado para el servidor **${interaction.guild.name}**`)
+      .addFields(
+        {
+          name: '👑 Rol de Admin',
+          value: `<@&${session.config.adminRoleId}>`,
+          inline: true
+        },
+        {
+          name: '👥 Rol de Trial Staff',
+          value: `<@&${session.config.staffRoleId}>`,
+          inline: true
+        },
+        {
+          name: '🛒 Rol de Cliente',
+          value: session.config.customerRoleId ? `<@&${session.config.customerRoleId}>` : 'No configurado',
+          inline: true
+        },
+        {
+          name: '📝 Canal de Logs',
+          value: session.config.logChannelId ? `<#${session.config.logChannelId}>` : 'No configurado',
+          inline: true
+        },
+        {
+          name: '📄 Canal de Transcripts',
+          value: session.config.transcriptChannelId ? `<#${session.config.transcriptChannelId}>` : 'No configurado',
+          inline: true
+        },
+        {
+          name: '⭐ Canal de Ratings',
+          value: session.config.ratingChannelId ? `<#${session.config.ratingChannelId}>` : 'No configurado',
+          inline: true
+        },
+        {
+          name: '🚫 Canal de Spam/Bans',
+          value: session.config.spamChannelId ? `<#${session.config.spamChannelId}>` : 'No configurado',
+          inline: true
+        },
+        {
+          name: '🔧 Rol de Trial Admin',
+          value: session.config.trialAdminRoleId ? `<@&${session.config.trialAdminRoleId}>` : 'No configurado',
+          inline: true
+        }
+      )
+      .setFooter({ text: `Configurado por ${interaction.user.username}` })
+      .setTimestamp();
+
+    await interaction.update({
+      content: null,
+      embeds: [embed],
+      components: []
+    });
+
+    SetupWizard.deleteSession(interaction.user.id);
+
+    console.log(`[SETUP] Bot configurado en servidor: ${interaction.guild.name} (${session.guildId})`);
+  }
 }
