@@ -7,16 +7,16 @@ const AUTHORIZED_USER_IDS = ['1190738779015757914', '1407024330633642005'];
 export default {
   data: new SlashCommandBuilder()
     .setName('setup')
-    .setDescription('Configurar el bot en este servidor (Solo para usuarios autorizados)')
+    .setDescription('Configure the bot in this server (Authorized users only)')
     .addSubcommand((sub) =>
       sub
         .setName('start')
-        .setDescription('Iniciar configuración interactiva del bot')
+        .setDescription('Start interactive bot configuration')
     )
     .addSubcommand((sub) =>
       sub
         .setName('quick')
-        .setDescription('Configuración rápida (todos los parámetros a la vez)')
+        .setDescription('Quick setup (all parameters at once)')
         .addRoleOption((option) =>
           option
             .setName('admin_role')

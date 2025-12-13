@@ -1329,37 +1329,121 @@ export class Bot {
         }
         
         // Detectar invoice con formato específico (ej: 3bcf919f0e26c-0000008525997)
-        const invoiceMatch = this.detectInvoice(content);
+        const invoiceMatch = this.detectInvoice(message.content); // Usar contenido original, no lowercase
         
         // Detectar servicios y cantidades mencionados (Netflix x1, Hulu, etc.)
         const serviceInfo = this.detectServiceAndQuantity(content);
         
-        // Si detecta invoice + servicio + cantidad, renombrar ticket
-        if (invoiceMatch && serviceInfo.service && serviceInfo.quantity) {
+        // Si detecta invoice + fotos, verificar invoice y analizar fotos
+        if (invoiceMatch && hasImages) {
           try {
-            const ticketId = ticket.id;
-            const serviceName = serviceInfo.service.toLowerCase();
-            const quantity = serviceInfo.quantity;
-            // Asegurar que el emoji 🔧 siempre esté presente
-            let newName = `replace-${serviceName}-x${quantity}-acc-${ticketId.toLowerCase()}`;
-            if (!newName.includes('🔧')) {
-              newName += '-🔧';
+            // Verificar invoice con la API
+            const invoiceValid = await this.verifyInvoice(invoiceMatch);
+            
+            if (!invoiceValid) {
+              const lastMessages = await message.channel.messages.fetch({ limit: 5 });
+              const alreadyWarned = lastMessages.some(msg => 
+                msg.author.bot && 
+                msg.content.includes('Invoice not found')
+              );
+              
+              if (!alreadyWarned) {
+                await message.channel.send({
+                  content: `❌ **Invoice Not Found**\n\nThe invoice ID \`${invoiceMatch}\` was not found in the system.\n\nPlease verify the invoice number and try again.`
+                });
+              }
+              return;
             }
             
-            await message.channel.setName(newName);
+            // Analizar fotos para detectar errores o cuentas válidas
+            const photoAnalysis = await this.analyzePhotos(message.attachments);
+            const accountCount = photoAnalysis.accountCount;
+            const hasErrors = photoAnalysis.hasErrors;
+            const hasValidAccounts = photoAnalysis.hasValidAccounts;
             
-            console.log(`[TICKET] Ticket ${ticketId} renamed to "${newName}" (Invoice: ${invoiceMatch}, Service: ${serviceName}, Qty: ${quantity})`);
+            // Si hay errores detectados o no se puede determinar claramente, etiquetar staff
+            if (hasErrors || (!hasValidAccounts && accountCount === 0)) {
+              const guildConfig = GuildConfig.getConfig(message.guild.id);
+              const staffRoleId = guildConfig?.staffRoleId;
+              
+              let staffMention = '';
+              if (staffRoleId) {
+                staffMention = `<@&${staffRoleId}> `;
+              }
+              
+              await message.channel.send({
+                content: `${staffMention}⚠️ **Manual Review Required**\n\nInvoice: \`${invoiceMatch}\`\nPhotos detected: ${message.attachments.size}\n\n**Issue:** Unable to automatically determine account status or errors detected in photos.\n\nPlease review the photos and process manually.`
+              });
+              return;
+            }
             
-            // Si hay foto, también procesar replace-message
-            if (hasImages) {
+            // Si hay fotos válidas pero no se detectó servicio, preguntar tipo de cuenta
+            if (hasValidAccounts && !serviceInfo.service) {
+              const lastMessages = await message.channel.messages.fetch({ limit: 5 });
+              const alreadyAsked = lastMessages.some(msg => 
+                msg.author.bot && 
+                (msg.content.includes('What type of account') || 
+                 msg.content.includes('How many accounts'))
+              );
+              
+              if (!alreadyAsked) {
+                await message.channel.send({
+                  content: `❓ **Account Information Required**\n\n**How many accounts?** (Detected: ${accountCount > 0 ? accountCount : 'unknown'})\n**What type of account?** (e.g., Netflix, Hulu, Disney+, etc.)\n\nPlease provide this information to proceed with the replacement.`
+                });
+              }
+              return;
+            }
+            
+            // Si hay servicio pero no cantidad, preguntar cantidad
+            if (serviceInfo.service && !serviceInfo.quantity) {
+              const lastMessages = await message.channel.messages.fetch({ limit: 5 });
+              const alreadyAsked = lastMessages.some(msg => 
+                msg.author.bot && 
+                msg.content.includes('How many accounts')
+              );
+              
+              if (!alreadyAsked) {
+                await message.channel.send({
+                  content: `❓ **How many accounts?**\n\nDetected service: **${serviceInfo.service}**\nDetected in photos: ${accountCount > 0 ? accountCount : 'unknown'}\n\nPlease specify the number of accounts that need to be replaced.`
+                });
+              }
+              return;
+            }
+            
+            // Si tenemos invoice válido + servicio + cantidad + fotos válidas, procesar replace
+            if (serviceInfo.service && serviceInfo.quantity && hasValidAccounts) {
+              const ticketId = ticket.id;
+              const serviceName = serviceInfo.service.toLowerCase();
+              const quantity = serviceInfo.quantity;
+              
+              // Asegurar que el emoji 🔧 siempre esté presente
+              let newName = `replace-${serviceName}-x${quantity}-acc-${ticketId.toLowerCase()}`;
+              if (!newName.includes('🔧')) {
+                newName += '-🔧';
+              }
+              
+              await message.channel.setName(newName);
+              
+              console.log(`[TICKET] Ticket ${ticketId} renamed to "${newName}" (Invoice: ${invoiceMatch}, Service: ${serviceName}, Qty: ${quantity})`);
+              
+              // Ejecutar replace automáticamente en público
               setTimeout(async () => {
                 try {
-                  const { default: replaceMessageCommand } = await import('../commands/replace-message.js');
+                  const { default: replaceCommand } = await import('../commands/replace.js');
                   
+                  // Crear una interacción simulada para ejecutar /replace
                   const fakeInteraction = {
                     options: {
-                      getChannel: () => message.channel,
-                      getString: () => null
+                      getString: (name) => {
+                        if (name === 'product') return serviceName;
+                        if (name === 'variant') return null;
+                        if (name === 'quantity') return quantity.toString();
+                        return null;
+                      },
+                      getInteger: (name) => {
+                        if (name === 'quantity') return quantity;
+                        return null;
+                      }
                     },
                     guild: message.guild,
                     channel: message.channel,
@@ -1367,25 +1451,41 @@ export class Bot {
                     member: message.guild.members.me,
                     editReply: async (data) => {
                       await message.channel.send({
-                        content: `✅ **Replacement Processed Automatically**\n\nInvoice: ${invoiceMatch}\nService: ${serviceName} x${quantity}\nProof: Attached\n\nThe staff will process your replacement shortly.`
+                        content: `✅ **Replacement Processed Automatically**\n\nInvoice: ${invoiceMatch}\nService: ${serviceName} x${quantity}\nProof: Attached\n\nThe replacement has been processed.`
                       });
                     },
                     deferReply: async () => {},
                     reply: async () => {}
                   };
                   
-                  await replaceMessageCommand.execute(fakeInteraction, this.api);
+                  await replaceCommand.execute(fakeInteraction, this.api);
                   
-                  console.log(`[AUTO-REPLACE] Invoice ${invoiceMatch} detected, replace-message executed automatically`);
+                  console.log(`[AUTO-REPLACE] Invoice ${invoiceMatch} processed automatically - Service: ${serviceName}, Qty: ${quantity}`);
                 } catch (error) {
                   console.error('[AUTO-REPLACE] Error:', error);
+                  await message.channel.send({
+                    content: `⚠️ **Automatic replacement failed**\n\nInvoice: ${invoiceMatch}\nService: ${serviceName} x${quantity}\n\nPlease process manually using \`/replace\`.`
+                  });
                 }
-              }, 1000);
+              }, 2000);
+              
+              return; // Salir después de procesar
             }
             
-            return; // Salir después de procesar invoice + servicio
-          } catch (renameError) {
-            console.error('[TICKET] Error renaming ticket:', renameError);
+          } catch (error) {
+            console.error('[TICKET] Error processing invoice and photos:', error);
+            // En caso de error, etiquetar staff
+            const guildConfig = GuildConfig.getConfig(message.guild.id);
+            const staffRoleId = guildConfig?.staffRoleId;
+            
+            let staffMention = '';
+            if (staffRoleId) {
+              staffMention = `<@&${staffRoleId}> `;
+            }
+            
+            await message.channel.send({
+              content: `${staffMention}⚠️ **Error Processing Request**\n\nAn error occurred while processing the invoice and photos. Please review manually.`
+            });
           }
         }
         
@@ -1423,37 +1523,20 @@ export class Bot {
           return;
         }
         
-        // Si detecta invoice + foto pero sin servicio específico, ejecutar replace-message genérico
-        if (invoiceMatch && hasImages && !serviceInfo.service) {
-          setTimeout(async () => {
-            try {
-              const { default: replaceMessageCommand } = await import('../commands/replace-message.js');
-              
-              const fakeInteraction = {
-                options: {
-                  getChannel: () => message.channel,
-                  getString: () => null
-                },
-                guild: message.guild,
-                channel: message.channel,
-                user: message.client.user,
-                member: message.guild.members.me,
-                editReply: async (data) => {
-                  await message.channel.send({
-                    content: `✅ **Replacement Processed Automatically**\n\nInvoice: ${invoiceMatch}\nProof: Attached\n\nThe staff will process your replacement shortly.`
-                  });
-                },
-                deferReply: async () => {},
-                reply: async () => {}
-              };
-              
-              await replaceMessageCommand.execute(fakeInteraction, this.api);
-              
-              console.log(`[AUTO-REPLACE] Invoice ${invoiceMatch} detectado en ticket ${ticket.id}, replace-message ejecutado automáticamente`);
-            } catch (error) {
-              console.error('[AUTO-REPLACE] Error:', error);
-            }
-          }, 1000);
+        // Si detecta invoice pero sin fotos, pedir fotos
+        if (invoiceMatch && !hasImages) {
+          const lastMessages = await message.channel.messages.fetch({ limit: 5 });
+          const alreadyAsked = lastMessages.some(msg => 
+            msg.author.bot && 
+            msg.content.includes('Proof Required')
+          );
+          
+          if (!alreadyAsked) {
+            await message.channel.send({
+              content: `📸 **Proof Required**\n\nInvoice detected: \`${invoiceMatch}\`\n\nPlease upload screenshot(s) as proof of the issue.`
+            });
+          }
+          return;
         }
         
       } catch (error) {
@@ -1541,6 +1624,91 @@ export class Bot {
     return {
       service: detectedService,
       quantity: quantity
+    };
+  }
+
+  async verifyInvoice(invoiceId) {
+    try {
+      const cleanId = invoiceId.trim();
+      
+      // Buscar invoice en la API (similar a invoice-view)
+      for (let page = 1; page <= 10; page++) { // Limitar a 10 páginas para no sobrecargar
+        try {
+          const response = await this.api.get(`shops/${this.api.shopId}/invoices?limit=250&page=${page}`);
+          const invoicesList = Array.isArray(response) ? response : response?.data || [];
+          
+          if (invoicesList.length === 0) break;
+          
+          for (const inv of invoicesList) {
+            const idMatch = inv.id === cleanId || 
+                            inv.unique_id === cleanId ||
+                            inv.invoice_id === cleanId || 
+                            inv.reference_id === cleanId ||
+                            (inv.id && inv.id.toString() === cleanId) ||
+                            (inv.invoice_id && inv.invoice_id.toString() === cleanId);
+            
+            if (idMatch) {
+              console.log(`[INVOICE-VERIFY] ✅ Invoice ${cleanId} verified`);
+              return true;
+            }
+          }
+        } catch (apiError) {
+          console.error(`[INVOICE-VERIFY] Error fetching page ${page}:`, apiError.message);
+          if (apiError.status === 429) break; // Rate limit
+        }
+      }
+      
+      console.log(`[INVOICE-VERIFY] ❌ Invoice ${cleanId} not found`);
+      return false;
+    } catch (error) {
+      console.error('[INVOICE-VERIFY] Error:', error);
+      return false; // En caso de error, asumir que no es válido
+    }
+  }
+
+  async analyzePhotos(attachments) {
+    // Sin OCR, solo podemos hacer análisis básico
+    // Contar archivos de imagen
+    const imageAttachments = Array.from(attachments.values()).filter(att => 
+      att.contentType && att.contentType.startsWith('image/')
+    );
+    
+    // Intentar detectar patrones en los nombres de archivo
+    let accountCount = 0;
+    let hasErrors = false;
+    let hasValidAccounts = false;
+    
+    // Contar archivos únicos (no duplicados por nombre)
+    const uniqueFiles = new Set();
+    imageAttachments.forEach(att => {
+      uniqueFiles.add(att.name);
+    });
+    
+    accountCount = uniqueFiles.size;
+    
+    // Detectar posibles errores en nombres de archivo
+    const errorKeywords = ['error', 'failed', 'incorrect', 'wrong', 'invalid'];
+    imageAttachments.forEach(att => {
+      const fileName = att.name.toLowerCase();
+      if (errorKeywords.some(keyword => fileName.includes(keyword))) {
+        hasErrors = true;
+      }
+    });
+    
+    // Si hay imágenes, asumir que hay al menos una cuenta válida (a menos que haya errores explícitos)
+    if (imageAttachments.length > 0 && !hasErrors) {
+      hasValidAccounts = true;
+      // Si no se detectó cantidad específica, usar el número de imágenes únicas
+      if (accountCount === 0) {
+        accountCount = uniqueFiles.size;
+      }
+    }
+    
+    return {
+      accountCount: accountCount,
+      hasErrors: hasErrors,
+      hasValidAccounts: hasValidAccounts,
+      imageCount: imageAttachments.length
     };
   }
 }
