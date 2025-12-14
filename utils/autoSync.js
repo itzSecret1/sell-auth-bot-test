@@ -113,11 +113,14 @@ async function autoSyncVariants(api) {
       const stockMap = new Map(stockResults.map((r) => [`${r.productId}-${r.variantId}`, r.stock]));
 
       // Build variants data
+      // IMPORTANT: Add ALL products, even if they don't have variants yet
       for (const product of allProducts) {
         try {
-          if (product.variants && Array.isArray(product.variants) && product.variants.length > 0) {
-            const variantMap = {};
+          const productId = product.id.toString();
+          const variantMap = {};
+          let hasVariants = false;
 
+          if (product.variants && Array.isArray(product.variants) && product.variants.length > 0) {
             for (const variant of product.variants) {
               const realStock = stockMap.get(`${product.id}-${variant.id}`) || 0;
 
@@ -128,14 +131,19 @@ async function autoSyncVariants(api) {
               };
 
               totalVariants++;
+              hasVariants = true;
             }
+          }
 
-            allVariants[product.id.toString()] = {
-              productId: product.id,
-              productName: product.name,
-              variants: variantMap
-            };
+          // Add ALL products to cache, even if they don't have variants yet
+          // This ensures new products are detected even before they have variants
+          allVariants[productId] = {
+            productId: product.id,
+            productName: product.name,
+            variants: variantMap
+          };
 
+          if (hasVariants) {
             productsWithVariants++;
           }
         } catch (e) {
@@ -149,8 +157,10 @@ async function autoSyncVariants(api) {
 
     const duration = Math.round((Date.now() - startTime) / 1000);
     const timestamp = new Date().toLocaleTimeString();
+    const totalProductsInCache = Object.keys(allVariants).length;
+    const productsWithoutVariants = totalProductsInCache - productsWithVariants;
     console.log(
-      `[AUTO-SYNC] ${timestamp} - Completed! ${productsWithVariants} products, ${totalVariants} variants (${duration}s)`
+      `[AUTO-SYNC] ${timestamp} - Completed! ${totalProductsInCache} total products (${productsWithVariants} with variants, ${productsWithoutVariants} without), ${totalVariants} variants (${duration}s)`
     );
   } catch (error) {
     const timestamp = new Date().toLocaleTimeString();
