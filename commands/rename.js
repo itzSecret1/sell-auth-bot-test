@@ -1,4 +1,4 @@
-import { SlashCommandBuilder, EmbedBuilder } from 'discord.js';
+import { SlashCommandBuilder, EmbedBuilder, ChannelType } from 'discord.js';
 import { TicketManager } from '../utils/TicketManager.js';
 import { GuildConfig } from '../utils/GuildConfig.js';
 import { config } from '../utils/config.js';
@@ -6,11 +6,11 @@ import { config } from '../utils/config.js';
 export default {
   data: new SlashCommandBuilder()
     .setName('rename')
-    .setDescription('Rename a ticket')
+    .setDescription('Rename the current channel')
     .addStringOption((option) =>
       option
         .setName('name')
-        .setDescription('New name for the ticket')
+        .setDescription('New name for the channel')
         .setRequired(true)
         .setMaxLength(100)
     ),
@@ -25,57 +25,56 @@ export default {
       const newName = interaction.options.getString('name');
       const channel = interaction.channel;
 
-      // Verificar que estamos en un canal de ticket
-      const ticket = TicketManager.getTicketByChannel(channel.id);
-      if (!ticket) {
-        // Intentar buscar de nuevo después de un pequeño delay
-        await new Promise(r => setTimeout(r, 500));
-        const ticketRetry = TicketManager.getTicketByChannel(channel.id);
-        
-        if (!ticketRetry) {
-          await interaction.editReply({
-            content: '❌ This command can only be used in a ticket channel.\n\n**Note:** Ticket channels are created when users open tickets (e.g., `#replaces-tkt-0001`). If you are in a ticket channel, please wait a moment and try again.'
-          });
-          return;
-        }
-        
-        // Si encontramos el ticket en el segundo intento, continuar con ticketRetry
-        const actualTicket = ticketRetry;
-        
-        // Renombrar el canal
-        try {
-          await channel.setName(newName.toLowerCase().replace(/\s+/g, '-'));
-          
-          const embed = new EmbedBuilder()
-            .setColor(0x00ff00)
-            .setTitle('✅ Ticket Renamed')
-            .setDescription(`The ticket has been renamed to: **${newName}**`)
-            .setFooter({ text: `Renamed by ${interaction.user.username}` })
-            .setTimestamp();
-
-          await interaction.editReply({
-            embeds: [embed]
-          });
-
-          console.log(`[RENAME] Ticket ${actualTicket.id} renombrado a "${newName}" por ${interaction.user.tag}`);
-          return;
-        } catch (error) {
-          console.error('[RENAME] Error:', error);
-          await interaction.editReply({
-            content: `❌ Error renaming the ticket: ${error.message}`
-          });
-          return;
-        }
+      // Verificar que es un canal de texto
+      if (channel.type !== ChannelType.GuildText) {
+        await interaction.editReply({
+          content: '❌ This command can only be used in text channels.'
+        });
+        return;
       }
+
+      // Verificar permisos del bot
+      const botMember = interaction.guild.members.me;
+      if (!channel.permissionsFor(botMember).has('ManageChannels')) {
+        await interaction.editReply({
+          content: '❌ I don\'t have permission to rename this channel. Please make sure I have the "Manage Channels" permission.'
+        });
+        return;
+      }
+
+      // Verificar permisos del usuario
+      if (!channel.permissionsFor(interaction.member).has('ManageChannels')) {
+        await interaction.editReply({
+          content: '❌ You don\'t have permission to rename this channel. You need the "Manage Channels" permission.'
+        });
+        return;
+      }
+
+      // Limpiar el nombre (solo minúsculas, sin espacios, sin caracteres especiales)
+      const cleanedName = newName.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9\-]/g, '');
 
       // Renombrar el canal
       try {
-        await channel.setName(newName.toLowerCase().replace(/\s+/g, '-'));
+        await channel.setName(cleanedName);
+        
+        // Verificar si es un ticket para logging
+        const ticket = TicketManager.getTicketByChannel(channel.id);
+        const channelType = ticket ? 'Ticket' : 'Channel';
         
         const embed = new EmbedBuilder()
           .setColor(0x00ff00)
-          .setTitle('✅ Ticket Renamed')
-          .setDescription(`The ticket has been renamed to: **${newName}**`)
+          .setTitle(`✅ ${channelType} Renamed`)
+          .setDescription(`The ${channelType.toLowerCase()} has been renamed to: **${cleanedName}**`)
+          .addFields({
+            name: '📝 Original Name',
+            value: newName,
+            inline: true
+          })
+          .addFields({
+            name: '✨ New Name',
+            value: cleanedName,
+            inline: true
+          })
           .setFooter({ text: `Renamed by ${interaction.user.username}` })
           .setTimestamp();
 
@@ -83,11 +82,15 @@ export default {
           embeds: [embed]
         });
 
-        console.log(`[RENAME] Ticket ${ticket.id} renombrado a "${newName}" por ${interaction.user.tag}`);
+        if (ticket) {
+          console.log(`[RENAME] Ticket ${ticket.id} renombrado a "${cleanedName}" por ${interaction.user.tag}`);
+        } else {
+          console.log(`[RENAME] Canal ${channel.name} renombrado a "${cleanedName}" por ${interaction.user.tag}`);
+        }
       } catch (error) {
         console.error('[RENAME] Error:', error);
         await interaction.editReply({
-          content: `❌ Error renaming the ticket: ${error.message}`
+          content: `❌ Error renaming the channel: ${error.message}`
         });
       }
 
