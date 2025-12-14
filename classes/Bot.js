@@ -186,11 +186,36 @@ export class Bot {
   async registerIndividualCommands() {
     const startTime = Date.now();
     try {
+      // Verificar que el token esté configurado
+      if (!config.BOT_TOKEN || config.BOT_TOKEN === '') {
+        console.error('[BOT] ❌ BOT_TOKEN is not configured! Cannot register commands.');
+        this.isRegisteringCommands = false;
+        return;
+      }
+      
       // Configurar REST client con opciones mejoradas
       const rest = new REST({ 
         version: '10',
         timeout: 30000 // 30 segundos de timeout global
       }).setToken(config.BOT_TOKEN);
+      
+      // Verificar autenticación haciendo una solicitud simple
+      try {
+        console.log('[BOT] 🔑 Verifying bot token...');
+        await rest.get(Routes.user('@me'));
+        console.log('[BOT] ✅ Bot token is valid');
+      } catch (authErr) {
+        if (authErr.status === 401 || authErr.status === 403) {
+          console.error('[BOT] ❌ Invalid bot token! Please reset your BOT_TOKEN in Discord Developer Portal.');
+          console.error('[BOT]    Steps: 1) Go to https://discord.com/developers/applications');
+          console.error('[BOT]           2) Select your bot application');
+          console.error('[BOT]           3) Go to "Bot" section');
+          console.error('[BOT]           4) Click "Reset Token" and update BOT_TOKEN environment variable');
+          this.isRegisteringCommands = false;
+          return;
+        }
+        console.warn(`[BOT] ⚠️  Could not verify token (non-critical): ${authErr.message}`);
+      }
       
       // Registrar comandos en todos los servidores
       const guilds = this.client.guilds.cache;
@@ -283,6 +308,15 @@ export class Bot {
               console.error(`[BOT]    Error stack: ${err.stack.split('\n').slice(0, 5).join('\n')}`);
             }
             
+            // Verificar si es error de autenticación
+            if (err.status === 401 || err.status === 403 || err.message?.includes('Unauthorized') || err.message?.includes('Invalid token')) {
+              console.error(`[BOT] 🔑 Authentication error detected! Token may be invalid.`);
+              console.error(`[BOT]    Please check your BOT_TOKEN environment variable.`);
+              console.error(`[BOT]    You may need to reset the bot token in Discord Developer Portal.`);
+              // No reintentar si es error de autenticación
+              return;
+            }
+            
             // Si es rate limit, esperar y reintentar
             if (err.status === 429 || err.retry_after || err.message?.includes('rate limit')) {
               const waitTime = err.retry_after ? (err.retry_after * 1000) : 5000;
@@ -305,31 +339,36 @@ export class Bot {
                     const vouchesRestore = retryResult.find(c => c.name === 'vouches-restore');
                     console.log(`[BOT] 🎯 vouches-restore successfully registered after retry! ID: ${vouchesRestore.id}`);
                   }
+                  return; // Éxito después del retry
                 }
               } catch (retryErr) {
                 console.error(`[BOT] ❌ Retry failed: ${retryErr.message || retryErr.code || retryErr}`);
+                if (retryErr.status === 401 || retryErr.status === 403) {
+                  console.error(`[BOT] 🔑 Authentication error in retry! Token may need to be reset.`);
+                }
               }
             }
-          }
-          
-          const totalTime = ((Date.now() - startTime) / 1000).toFixed(2);
-          console.log(`[BOT] ✅ ${guild.name}: ${success}/${totalCommands} commands registered successfully, ${failed} failed (took ${totalTime}s)`);
-          
-          if (failedCommands.length > 0) {
-            console.warn(`[BOT] ⚠️  Failed commands: ${failedCommands.join(', ')}`);
-          }
-          
-          // Verificar vouches-restore en los comandos registrados
-          try {
-            const registered = await guild.commands.fetch();
-            const vouchesRestore = registered.find(c => c.name === 'vouches-restore');
-            if (vouchesRestore) {
-              console.log(`[BOT] ✅ vouches-restore verified in registered commands! ID: ${vouchesRestore.id}`);
-            } else {
-              console.warn(`[BOT] ⚠️  vouches-restore NOT found in registered commands!`);
+            
+            // Si llegamos aquí, el registro falló completamente
+            console.warn(`[BOT] ⚠️  Command registration failed for ${guild.name}. Bot will continue running but commands may not be available.`);
+            console.warn(`[BOT]    You can try: 1) Reset bot token, 2) Check network connection, 3) Wait and restart bot`);
+            
+            // Intentar verificar qué comandos están registrados actualmente
+            try {
+              console.log(`[BOT] 🔍 Checking currently registered commands...`);
+              const registered = await Promise.race([
+                guild.commands.fetch(),
+                new Promise((_, reject) => setTimeout(() => reject(new Error('Fetch timeout')), 5000))
+              ]);
+              const registeredCount = registered.size;
+              console.log(`[BOT] 📊 Currently registered: ${registeredCount} command(s)`);
+              if (registeredCount > 0) {
+                const registeredNames = Array.from(registered.values()).map(c => c.name).slice(0, 10);
+                console.log(`[BOT]    Commands: ${registeredNames.join(', ')}${registeredCount > 10 ? '...' : ''}`);
+              }
+            } catch (verifyErr) {
+              console.warn(`[BOT] ⚠️  Could not verify registered commands: ${verifyErr.message}`);
             }
-          } catch (verifyErr) {
-            console.warn(`[BOT] ⚠️  Could not verify vouches-restore: ${verifyErr.message}`);
           }
           
         } catch (error) {
