@@ -1,4 +1,5 @@
 import { Collection, Events, REST, Routes, ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder, EmbedBuilder } from 'discord.js';
+import axios from 'axios';
 import { readdirSync } from 'fs';
 import { fileURLToPath, pathToFileURL } from 'url';
 import { join, dirname } from 'path';
@@ -366,26 +367,99 @@ export class Bot {
               console.log(`[BOT]    Options: ${cmd.options?.length || 0}`);
               console.log(`[BOT]    Timestamp: ${new Date().toISOString()}`);
               
-              // Crear el comando con logging detallado
-              console.log(`[BOT]    [${new Date().toISOString()}] Calling guild.commands.create()...`);
+              // Usar axios directamente para tener más control y mejor diagnóstico
+              console.log(`[BOT]    [${new Date().toISOString()}] Preparing HTTP request...`);
               
-              const createPromise = guild.commands.create(cmd);
+              const url = `https://discord.com/api/v10/applications/${this.client.user.id}/guilds/${guildId}/commands`;
+              console.log(`[BOT]    URL: ${url}`);
+              console.log(`[BOT]    Method: POST`);
+              console.log(`[BOT]    Headers: Authorization: Bot ${config.BOT_TOKEN.substring(0, 20)}...`);
               
               // Progress indicator cada 2 segundos
               const progressInterval = setInterval(() => {
                 const elapsed = ((Date.now() - cmdStartTime) / 1000).toFixed(1);
-                console.log(`[BOT]    [${new Date().toISOString()}] ⏳ Still creating ${cmd.name}... (${elapsed}s elapsed)`);
+                console.log(`[BOT]    [${new Date().toISOString()}] ⏳ Still waiting for response... (${elapsed}s elapsed)`);
               }, 2000);
               
-              const timeoutPromise = new Promise((_, reject) => 
-                setTimeout(() => {
-                  clearInterval(progressInterval);
-                  reject(new Error(`Command ${cmd.name} timeout after 20s`));
-                }, 20000) // 20 segundos timeout
-              );
+              try {
+                console.log(`[BOT]    [${new Date().toISOString()}] Sending HTTP POST request via axios...`);
+                
+                const axiosPromise = axios.post(url, cmd, {
+                  headers: {
+                    'Authorization': `Bot ${config.BOT_TOKEN}`,
+                    'Content-Type': 'application/json',
+                    'User-Agent': 'DiscordBot (https://github.com/discordjs/discord.js, 14.15.3)'
+                  },
+                  timeout: 30000, // 30 segundos timeout
+                  validateStatus: (status) => status < 500 // No lanzar error para códigos 4xx
+                });
+                
+                const timeoutPromise = new Promise((_, reject) => 
+                  setTimeout(() => {
+                    clearInterval(progressInterval);
+                    reject(new Error(`Command ${cmd.name} timeout after 30s`));
+                  }, 30000)
+                );
+                
+                const response = await Promise.race([axiosPromise, timeoutPromise]);
+                clearInterval(progressInterval);
+                
+                console.log(`[BOT]    [${new Date().toISOString()}] ✅ Received HTTP response`);
+                console.log(`[BOT]    Response status: ${response.status}`);
+                console.log(`[BOT]    Response headers: ${JSON.stringify(response.headers).substring(0, 200)}`);
+                
+                if (response.status >= 200 && response.status < 300) {
+                  const created = response.data;
+                  
+                  if (created && created.id) {
+                    success++;
+                    const cmdTime = ((Date.now() - cmdStartTime) / 1000).toFixed(2);
+                    console.log(`[BOT] ✅ [${i + 1}/${totalCommands}] Registered: ${cmd.name} (${cmdTime}s) - ID: ${created.id}`);
+                    console.log(`[BOT]    Created at: ${new Date().toISOString()}`);
+                    
+                    // Verificar vouches-restore específicamente
+                    if (cmd.name === 'vouches-restore') {
+                      console.log(`[BOT] 🎯 vouches-restore successfully registered! ID: ${created.id}`);
+                    }
+                    
+                    // Delay entre comandos para evitar rate limits (500ms)
+                    if (i < validCommands.length - 1) {
+                      await new Promise(r => setTimeout(r, 500));
+                    }
+                    
+                    continue; // Continuar con el siguiente comando
+                  } else {
+                    throw new Error(`Invalid response data: ${JSON.stringify(response.data).substring(0, 200)}`);
+                  }
+                } else {
+                  // Error HTTP pero recibimos respuesta
+                  console.error(`[BOT]    Response data: ${JSON.stringify(response.data).substring(0, 300)}`);
+                  throw new Error(`HTTP ${response.status}: ${JSON.stringify(response.data)}`);
+                }
+                
+              } catch (httpErr) {
+                clearInterval(progressInterval);
+                
+                // Logging detallado del error HTTP
+                if (httpErr.response) {
+                  console.error(`[BOT]    HTTP Error Response:`);
+                  console.error(`[BOT]      Status: ${httpErr.response.status}`);
+                  console.error(`[BOT]      Status Text: ${httpErr.response.statusText}`);
+                  console.error(`[BOT]      Data: ${JSON.stringify(httpErr.response.data).substring(0, 500)}`);
+                  console.error(`[BOT]      Headers: ${JSON.stringify(httpErr.response.headers).substring(0, 300)}`);
+                } else if (httpErr.request) {
+                  console.error(`[BOT]    HTTP Request Error:`);
+                  console.error(`[BOT]      No response received`);
+                  console.error(`[BOT]      Request config: ${JSON.stringify(httpErr.config).substring(0, 300)}`);
+                } else {
+                  console.error(`[BOT]    HTTP Setup Error: ${httpErr.message}`);
+                }
+                
+                throw httpErr; // Re-lanzar para que se maneje en el catch externo
+              }
               
-              const created = await Promise.race([createPromise, timeoutPromise]);
-              clearInterval(progressInterval);
+              // Este código no debería ejecutarse nunca debido al continue arriba
+              throw new Error('Unexpected code path');
               
               if (created && created.id) {
                 success++;
