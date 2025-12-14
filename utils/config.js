@@ -11,7 +11,8 @@ let config = {
   BOT_SPAM_CHANNEL_ID: process.env.BOT_SPAM_CHANNEL_ID || '', // Canal para notificaciones de spam/bans
   SA_API_KEY: process.env.SA_API_KEY || '',
   SA_SHOP_ID: process.env.SA_SHOP_ID || '',
-  LOG_CHANNEL_ID: process.env.LOG_CHANNEL_ID || ''
+  LOG_CHANNEL_ID: process.env.LOG_CHANNEL_ID || '',
+  SHOP_URL: process.env.SHOP_URL || 'https://sellauth.com'
 };
 
 export { config };

@@ -1181,9 +1181,13 @@ export class Bot {
 
   // Validar formato de invoice ID
   validateInvoiceIdFormat(invoiceId) {
-    // Formato esperado: 12 caracteres alfanuméricos - 15 dígitos
-    // Ejemplos válidos: 6555d345ec623-0000008535737, f6fbff4893023-0000008534297
-    const invoicePattern = /^[a-z0-9]{12}-[0-9]{15}$/i;
+    // Formato esperado: 12-14 caracteres alfanuméricos - 15 dígitos
+    // Ejemplos válidos: 
+    // - 6555d345ec623-0000008535737 (12 chars - 15 digits)
+    // - f6fbff4893023-0000008534297 (13 chars - 15 digits)
+    // - baa5d08755b17-0000008500435 (13 chars - 15 digits)
+    // - 35bd25e19030f-0000008489204 (14 chars - 15 digits)
+    const invoicePattern = /^[a-z0-9]{12,14}-[0-9]{15}$/i;
     return invoicePattern.test(invoiceId.trim());
   }
 
@@ -1214,11 +1218,11 @@ export class Bot {
               value: '`[12 alphanumeric characters]-[15 digits]`\n\n**Valid Examples:**\n• `6555d345ec623-0000008535737`\n• `f6fbff4893023-0000008534297`\n• `baa5d08755b17-0000008500435`',
               inline: false
             },
-            {
-              name: '🔍 How to Find Your Invoice ID',
-              value: '**Step 1:** Go to [SellAuth Customer Dashboard](https://sellauth.com/dashboard)\n**Step 2:** Log in to your account\n**Step 3:** Navigate to "My Orders" or "Purchase History"\n**Step 4:** Find your order and click on it\n**Step 5:** Copy the Invoice ID (format: `xxxxx-xxxxxxxxxxxxx`)\n\n**Note:** The Invoice ID is different from the order number. Look for a code that matches the format above.',
-              inline: false
-            },
+              {
+                name: '🔍 How to Find Your Invoice ID',
+                value: '**Step 1:** Go to [SellAuth Customer Dashboard](https://sellauth.com/dashboard)\n**Step 2:** Log in to your account\n**Step 3:** Navigate to "My Orders" or "Purchase History"\n**Step 4:** Find your order and click on it\n**Step 5:** Copy the Invoice ID (format: `xxxxx-xxxxxxxxxxxxx`)\n\n**Note:** The Invoice ID is different from the order number. Look for a code that matches the format above.\n\n**Valid formats:**\n• `12-14 alphanumeric characters` followed by `-` and `15 digits`\n• Example: `35bd25e19030f-0000008489204`',
+                inline: false
+              },
             {
               name: '💡 What You Entered',
               value: `\`${cleanInvoiceId}\`\n\nThis doesn\'t match the required format. Please check your invoice and try again.`,

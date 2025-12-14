@@ -295,9 +295,9 @@ export default {
 
       // VERIFICAR SI NECESITA CONFIRMACIÓN (quantity > 5)
       // Verificar si el usuario es owner (no necesita confirmación)
-      const { GuildConfig } = await import('../utils/GuildConfig.js');
-      const guildConfig = GuildConfig.getConfig(interaction.guild.id);
-      const adminRoleId = guildConfig?.adminRoleId || config.BOT_ADMIN_ROLE_ID;
+      const { GuildConfig: GuildConfigCheck } = await import('../utils/GuildConfig.js');
+      const guildConfigCheck = GuildConfigCheck.getConfig(interaction.guild.id);
+      const adminRoleId = guildConfigCheck?.adminRoleId || config.BOT_ADMIN_ROLE_ID;
       const isOwner = adminRoleId && interaction.member.roles.cache.has(adminRoleId);
       
       if (quantity > 5 && !isOwner) {

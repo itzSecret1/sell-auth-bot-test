@@ -1,6 +1,7 @@
 import { SlashCommandBuilder, EmbedBuilder } from 'discord.js';
 import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { AdvancedCommandLogger } from '../utils/advancedCommandLogger.js';
+import { config } from '../utils/config.js';
 
 const VOUCHES_FILE = './vouches.json';
 
@@ -99,9 +100,11 @@ export default {
       saveVouches(vouchesData);
 
       // Crear embed del vouch (formato mejorado)
+      const shopUrl = config.SHOP_URL || 'https://sellauth.com';
       const vouchEmbed = new EmbedBuilder()
         .setColor(0x5865F2)
         .setTitle('✨ New Vouch Created!')
+        .setURL(shopUrl)
         .addFields(
           {
             name: '💬 Vouch',
