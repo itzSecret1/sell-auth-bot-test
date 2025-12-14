@@ -227,45 +227,36 @@ export class Bot {
             console.warn(`[BOT] ⚠️  vouches-restore NOT found in command list!`);
           }
           
-          // Usar guild.commands.create() individualmente - método más confiable
+          // Usar REST API POST para crear comandos individuales - método más confiable
           console.log(`[BOT] 📤 Starting individual command registration for ${totalCommands} commands...`);
-          console.log(`[BOT] 🔍 Using guild.commands.create() method (more reliable than REST API)`);
+          console.log(`[BOT] 🔍 Using REST API POST method (direct API calls)`);
           console.log(`[BOT] 🔍 Guild ID: ${guildId}, Guild Name: ${guild.name}`);
           console.log(`[BOT] 🔍 Bot User ID: ${this.client.user.id}`);
           
-          // Verificar que el guild esté disponible
-          try {
-            console.log(`[BOT] 🔍 Verifying guild access...`);
-            await guild.fetch();
-            console.log(`[BOT] ✅ Guild is accessible`);
-          } catch (guildErr) {
-            console.error(`[BOT] ❌ Cannot access guild: ${guildErr.message}`);
-            throw guildErr;
-          }
-          
+          const route = Routes.applicationGuildCommands(this.client.user.id, guildId);
           let success = 0;
           let failed = 0;
           const failedCommands = [];
           
-          // Limpiar comandos existentes primero
+          // Limpiar comandos existentes primero usando REST API
           try {
-            console.log(`[BOT] 🗑️  Cleaning existing commands...`);
+            console.log(`[BOT] 🗑️  Cleaning existing commands using REST API...`);
             const fetchStart = Date.now();
             const existing = await Promise.race([
-              guild.commands.fetch(),
+              rest.get(route),
               new Promise((_, reject) => setTimeout(() => reject(new Error('Fetch timeout after 10s')), 10000))
             ]);
             const fetchTime = ((Date.now() - fetchStart) / 1000).toFixed(2);
-            const existingCount = existing.size;
+            const existingCount = Array.isArray(existing) ? existing.length : 0;
             console.log(`[BOT] 📊 Found ${existingCount} existing command(s) to delete (fetch took ${fetchTime}s)`);
             
             if (existingCount > 0) {
-              for (const cmd of existing.values()) {
+              for (const cmd of existing) {
                 try {
                   console.log(`[BOT] 🗑️  Deleting: ${cmd.name} (ID: ${cmd.id})...`);
                   const delStart = Date.now();
                   await Promise.race([
-                    guild.commands.delete(cmd.id),
+                    rest.delete(Routes.applicationGuildCommand(this.client.user.id, guildId, cmd.id)),
                     new Promise((_, reject) => setTimeout(() => reject(new Error('Delete timeout after 5s')), 5000))
                   ]);
                   const delTime = ((Date.now() - delStart) / 1000).toFixed(2);
@@ -285,7 +276,7 @@ export class Bot {
             // Continuar de todas formas
           }
           
-          // Registrar comandos individualmente
+          // Registrar comandos individualmente usando REST API POST
           for (let i = 0; i < validCommands.length; i++) {
             const cmd = validCommands[i];
             const cmdStartTime = Date.now();
@@ -295,13 +286,13 @@ export class Bot {
               console.log(`[BOT]    Command data: name="${cmd.name}", description="${cmd.description?.substring(0, 50)}..."`);
               console.log(`[BOT]    Options count: ${cmd.options?.length || 0}`);
               
-              // Crear timeout para cada comando
-              const createPromise = guild.commands.create(cmd);
+              // Usar REST API POST para crear comando individual
+              console.log(`[BOT]    Sending POST request to REST API...`);
+              const createPromise = rest.post(route, { body: cmd });
               const timeoutPromise = new Promise((_, reject) => 
-                setTimeout(() => reject(new Error(`Command creation timeout after 15s`)), 15000)
+                setTimeout(() => reject(new Error(`Command creation timeout after 10s`)), 10000)
               );
               
-              console.log(`[BOT]    Sending create request...`);
               const created = await Promise.race([createPromise, timeoutPromise]);
               
               if (created && created.id) {
@@ -317,9 +308,9 @@ export class Bot {
                 throw new Error('Command created but no ID returned');
               }
               
-              // Delay entre comandos para evitar rate limits (300ms como en reload-commands)
+              // Delay entre comandos para evitar rate limits (500ms)
               if (i < validCommands.length - 1) {
-                await new Promise(r => setTimeout(r, 300));
+                await new Promise(r => setTimeout(r, 500));
               }
               
             } catch (cmdErr) {
@@ -349,9 +340,9 @@ export class Bot {
                 // Reintentar este comando una vez
                 try {
                   console.log(`[BOT] 🔄 Retrying: ${cmd.name}...`);
-                  const retryPromise = guild.commands.create(cmd);
+                  const retryPromise = rest.post(route, { body: cmd });
                   const retryTimeout = new Promise((_, reject) => 
-                    setTimeout(() => reject(new Error('Retry timeout after 15s')), 15000)
+                    setTimeout(() => reject(new Error('Retry timeout after 10s')), 10000)
                   );
                   const retryCreated = await Promise.race([retryPromise, retryTimeout]);
                   if (retryCreated && retryCreated.id) {
