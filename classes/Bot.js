@@ -227,113 +227,120 @@ export class Bot {
             console.warn(`[BOT] ⚠️  vouches-restore NOT found in command list!`);
           }
           
-          // Usar PUT con TODOS los comandos a la vez - método correcto y eficiente
-          const route = Routes.applicationGuildCommands(this.client.user.id, guildId);
+          // Usar guild.commands.create() individualmente - método más confiable
+          console.log(`[BOT] 📤 Starting individual command registration for ${totalCommands} commands...`);
+          console.log(`[BOT] 🔍 Using guild.commands.create() method (more reliable than REST API)`);
           
+          let success = 0;
+          let failed = 0;
+          const failedCommands = [];
+          
+          // Limpiar comandos existentes primero
           try {
-            console.log(`[BOT] 📤 Sending batch registration request for ${totalCommands} commands...`);
+            console.log(`[BOT] 🗑️  Cleaning existing commands...`);
+            const existing = await guild.commands.fetch();
+            const existingCount = existing.size;
+            console.log(`[BOT] 📊 Found ${existingCount} existing command(s) to delete`);
             
-            // Dividir en lotes más pequeños si hay muchos comandos (Discord tiene límites)
-            const BATCH_SIZE = 25; // Discord permite hasta 100, pero usamos 25 para ser seguros
-            let allResults = [];
-            
-            if (validCommands.length > BATCH_SIZE) {
-              // Registrar en lotes
-              console.log(`[BOT] 📦 Large command set detected, splitting into batches of ${BATCH_SIZE}...`);
-              
-              for (let i = 0; i < validCommands.length; i += BATCH_SIZE) {
-                const batch = validCommands.slice(i, i + BATCH_SIZE);
-                const batchNum = Math.floor(i / BATCH_SIZE) + 1;
-                const totalBatches = Math.ceil(validCommands.length / BATCH_SIZE);
-                
-                console.log(`[BOT] 📦 Registering batch ${batchNum}/${totalBatches} (${batch.length} commands)...`);
-                
+            if (existingCount > 0) {
+              for (const cmd of existing.values()) {
                 try {
-                  const batchPromise = rest.put(route, { body: batch });
-                  const batchTimeout = new Promise((_, reject) => 
-                    setTimeout(() => reject(new Error(`Batch ${batchNum} timeout after 30s`)), 30000)
-                  );
-                  
-                  const batchResult = await Promise.race([batchPromise, batchTimeout]);
-                  
-                  if (batchResult && Array.isArray(batchResult)) {
-                    allResults = allResults.concat(batchResult);
-                    console.log(`[BOT] ✅ Batch ${batchNum}/${totalBatches} registered (${batchResult.length} commands)`);
-                  }
-                  
-                  // Pequeña pausa entre lotes para evitar rate limits
-                  if (i + BATCH_SIZE < validCommands.length) {
-                    await new Promise(r => setTimeout(r, 1000));
-                  }
-                } catch (batchErr) {
-                  console.error(`[BOT] ❌ Batch ${batchNum} failed:`, batchErr.message);
-                  // Continuar con el siguiente lote
+                  await guild.commands.delete(cmd.id);
+                  console.log(`[BOT] 🗑️  Deleted: ${cmd.name}`);
+                } catch (delErr) {
+                  console.warn(`[BOT] ⚠️  Failed to delete ${cmd.name}: ${delErr.message}`);
                 }
               }
-              
-              var result = allResults;
-            } else {
-              // Registrar todos a la vez si son pocos
-              const registrationPromise = rest.put(route, { 
-                body: validCommands
-              });
-              
-              const timeoutPromise = new Promise((_, reject) => 
-                setTimeout(() => reject(new Error('Registration timeout after 30s')), 30000)
-              );
-              
-              var result = await Promise.race([registrationPromise, timeoutPromise]);
+              console.log(`[BOT] ✅ Cleaned ${existingCount} existing command(s)`);
+              await new Promise(r => setTimeout(r, 2000)); // Wait 2s after deletion
             }
+          } catch (cleanErr) {
+            console.warn(`[BOT] ⚠️  Error cleaning commands: ${cleanErr.message}`);
+          }
+          
+          // Registrar comandos individualmente
+          for (let i = 0; i < validCommands.length; i++) {
+            const cmd = validCommands[i];
+            const cmdStartTime = Date.now();
             
-            if (result && Array.isArray(result)) {
-              const registeredCount = result.length;
-              const totalTime = ((Date.now() - startTime) / 1000).toFixed(2);
+            try {
+              console.log(`[BOT] 📝 [${i + 1}/${totalCommands}] Registering: ${cmd.name}...`);
               
-              console.log(`[BOT] ✅ ${guild.name}: ${registeredCount}/${totalCommands} commands registered successfully (took ${totalTime}s)`);
+              // Usar guild.commands.create() - método más confiable
+              const created = await guild.commands.create(cmd);
               
-              // Verificar que vouches-restore se registró
-              const registeredNames = result.map(c => c.name);
-              if (registeredNames.includes('vouches-restore')) {
-                console.log(`[BOT] ✅ vouches-restore successfully registered!`);
+              if (created && created.id) {
+                success++;
+                const cmdTime = ((Date.now() - cmdStartTime) / 1000).toFixed(2);
+                console.log(`[BOT] ✅ [${i + 1}/${totalCommands}] Registered: ${cmd.name} (${cmdTime}s)`);
+                
+                // Verificar vouches-restore específicamente
+                if (cmd.name === 'vouches-restore') {
+                  console.log(`[BOT] 🎯 vouches-restore successfully registered! ID: ${created.id}`);
+                }
               } else {
-                console.warn(`[BOT] ⚠️  vouches-restore was NOT registered!`);
+                throw new Error('Command created but no ID returned');
               }
-            } else {
-              throw new Error('Invalid response from Discord API - expected array');
-            }
-          } catch (err) {
-            console.error(`[BOT] ❌ Error registering commands in ${guild.name}:`, err.message || err.code || err);
-            if (err.stack) {
-              console.error(`[BOT] Stack trace:`, err.stack);
-            }
-            
-            // Si es rate limit, esperar y reintentar una vez
-            if (err.status === 429 || err.retry_after || err.message?.includes('rate limit')) {
-              const waitTime = err.retry_after ? (err.retry_after * 1000) : 5000;
-              console.log(`[BOT] ⏳ Rate limited, waiting ${waitTime/1000}s before retry...`);
-              await new Promise(r => setTimeout(r, waitTime));
               
-              try {
-                console.log(`[BOT] 🔄 Retrying batch registration...`);
-                const retryPromise = rest.put(route, { body: validCommands });
-                const retryTimeout = new Promise((_, reject) => 
-                  setTimeout(() => reject(new Error('Retry timeout after 60s')), 60000)
-                );
-                
-                const result = await Promise.race([retryPromise, retryTimeout]);
-                
-                if (result && Array.isArray(result)) {
-                  const totalTime = ((Date.now() - startTime) / 1000).toFixed(2);
-                  console.log(`[BOT] ✅ ${guild.name}: ${result.length}/${totalCommands} commands registered successfully after retry (took ${totalTime}s)`);
-                }
-              } catch (retryErr) {
-                console.error(`[BOT] ❌ Retry failed: ${retryErr.message || retryErr.code || retryErr}`);
-                throw retryErr;
+              // Delay entre comandos para evitar rate limits (300ms como en reload-commands)
+              if (i < validCommands.length - 1) {
+                await new Promise(r => setTimeout(r, 300));
               }
-            } else {
-              // Si no es rate limit, lanzar el error
-              throw err;
+              
+            } catch (cmdErr) {
+              failed++;
+              failedCommands.push(cmd.name);
+              const cmdTime = ((Date.now() - cmdStartTime) / 1000).toFixed(2);
+              
+              // Log detallado del error
+              console.error(`[BOT] ❌ [${i + 1}/${totalCommands}] Failed: ${cmd.name} (${cmdTime}s)`);
+              console.error(`[BOT]    Error code: ${cmdErr.code || 'N/A'}`);
+              console.error(`[BOT]    Error message: ${cmdErr.message || 'Unknown error'}`);
+              
+              // Si es rate limit, esperar más tiempo
+              if (cmdErr.code === 50035 || cmdErr.status === 429 || cmdErr.retry_after) {
+                const waitTime = cmdErr.retry_after ? (cmdErr.retry_after * 1000) : 2000;
+                console.log(`[BOT] ⏳ Rate limited on ${cmd.name}, waiting ${waitTime/1000}s...`);
+                await new Promise(r => setTimeout(r, waitTime));
+                
+                // Reintentar este comando una vez
+                try {
+                  console.log(`[BOT] 🔄 Retrying: ${cmd.name}...`);
+                  const retryCreated = await guild.commands.create(cmd);
+                  if (retryCreated && retryCreated.id) {
+                    success++;
+                    failed--;
+                    failedCommands.pop();
+                    console.log(`[BOT] ✅ Retry successful: ${cmd.name}`);
+                  }
+                } catch (retryErr) {
+                  console.error(`[BOT] ❌ Retry failed for ${cmd.name}: ${retryErr.message}`);
+                }
+              }
+              
+              // Continuar con el siguiente comando
+              await new Promise(r => setTimeout(r, 500));
             }
+          }
+          
+          const totalTime = ((Date.now() - startTime) / 1000).toFixed(2);
+          console.log(`[BOT] ✅ ${guild.name}: ${success}/${totalCommands} commands registered successfully, ${failed} failed (took ${totalTime}s)`);
+          
+          if (failedCommands.length > 0) {
+            console.warn(`[BOT] ⚠️  Failed commands: ${failedCommands.join(', ')}`);
+          }
+          
+          // Verificar vouches-restore en los comandos registrados
+          try {
+            const registered = await guild.commands.fetch();
+            const vouchesRestore = registered.find(c => c.name === 'vouches-restore');
+            if (vouchesRestore) {
+              console.log(`[BOT] ✅ vouches-restore verified in registered commands! ID: ${vouchesRestore.id}`);
+            } else {
+              console.warn(`[BOT] ⚠️  vouches-restore NOT found in registered commands!`);
+            }
+          } catch (verifyErr) {
+            console.warn(`[BOT] ⚠️  Could not verify vouches-restore: ${verifyErr.message}`);
           }
           
         } catch (error) {
