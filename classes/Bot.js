@@ -156,12 +156,21 @@ export class Bot {
           if (command.default && command.default.data) {
             const cmdName = command.default.data.name;
             if (!this.slashCommandsMap.has(cmdName)) {
-              this.slashCommands.push(command.default.data.toJSON());
+              const cmdData = command.default.data.toJSON();
+              this.slashCommands.push(cmdData);
               this.slashCommandsMap.set(cmdName, command.default);
+              // Log para verificar que vouches-restore se carga
+              if (cmdName === 'vouches-restore') {
+                console.log(`[BOT] ✅ Loaded command: ${cmdName} (from ${file})`);
+              }
+            } else {
+              console.warn(`[BOT] ⚠️  Duplicate command name: ${cmdName} (from ${file})`);
             }
+          } else {
+            console.warn(`[BOT] ⚠️  Invalid command structure in ${file}: missing data property`);
           }
         } catch (err) {
-          console.error(`[BOT] Error loading ${file}:`, err.message);
+          console.error(`[BOT] ❌ Error loading ${file}:`, err.message);
         }
       }
 
@@ -225,7 +234,6 @@ export class Bot {
           
           for (let i = 0; i < this.slashCommands.length; i++) {
             const cmd = this.slashCommands[i];
-            const cmdStartTime = Date.now();
             
             // Validar comando
             if (!cmd || !cmd.name || !cmd.description) {
@@ -247,9 +255,12 @@ export class Bot {
                   registered = true;
                   success++;
                   
-                  const cmdTime = ((Date.now() - cmdStartTime) / 1000).toFixed(2);
+                  // Calcular tiempo promedio desde el inicio
+                  const elapsedTime = (Date.now() - startTime) / 1000;
+                  const avgTime = (elapsedTime / (i + 1)).toFixed(2);
+                  
                   if ((i + 1) % 5 === 0 || i === 0 || i === totalCommands - 1) {
-                    console.log(`[BOT] 📊 Progress: ${i + 1}/${totalCommands} commands registered (${cmdTime}s per command)...`);
+                    console.log(`[BOT] 📊 Progress: ${i + 1}/${totalCommands} commands registered (avg: ${avgTime}s per command, elapsed: ${elapsedTime.toFixed(1)}s)...`);
                   }
                   
                   // Esperar entre comandos para evitar rate limits
@@ -273,8 +284,7 @@ export class Bot {
                 // Si falló después de todos los reintentos
                 if (retries > maxRetries) {
                   failed++;
-                  const cmdTime = ((Date.now() - cmdStartTime) / 1000).toFixed(2);
-                  console.warn(`[BOT] ⚠️  Failed to register ${cmd.name} (${cmdTime}s): ${err.message || err.code || 'Unknown error'}`);
+                  console.warn(`[BOT] ⚠️  Failed to register ${cmd.name}: ${err.message || err.code || 'Unknown error'}`);
                   break;
                 }
               }
