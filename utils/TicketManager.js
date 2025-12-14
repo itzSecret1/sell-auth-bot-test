@@ -1073,7 +1073,20 @@ export class TicketManager {
    * Obtener ticket por canal
    */
   static getTicketByChannel(channelId) {
-    return Object.values(ticketsData.tickets).find(t => t.channelId === channelId);
+    // Recargar tickets antes de buscar para asegurar datos actualizados
+    loadTickets();
+    
+    // Buscar por channelId exacto
+    const ticket = Object.values(ticketsData.tickets).find(t => t.channelId === channelId);
+    
+    if (ticket) {
+      return ticket;
+    }
+    
+    // Si no se encuentra, buscar también por channelId como string
+    return Object.values(ticketsData.tickets).find(t => 
+      String(t.channelId) === String(channelId)
+    );
   }
 
   /**
