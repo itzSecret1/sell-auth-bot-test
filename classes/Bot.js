@@ -265,27 +265,77 @@ export class Bot {
             console.warn(`[BOT] ⚠️  vouches-restore NOT found in command list!`);
           }
           
-          // Usar guild.commands.create() individualmente - método que FUNCIONA (como reload-commands.js)
-          console.log(`[BOT] 🔧 Using guild.commands.create() method (proven to work)`);
-          console.log(`[BOT] 🔍 Guild ID: ${guildId}, Guild Name: ${guild.name}`);
+          // DIAGNÓSTICO COMPLETO ANTES DE REGISTRAR
+          console.log(`[BOT] 🔍 ========== DIAGNÓSTICO INICIAL ==========`);
+          console.log(`[BOT] 🔍 Guild ID: ${guildId}`);
+          console.log(`[BOT] 🔍 Guild Name: ${guild.name}`);
           console.log(`[BOT] 🔍 Bot User ID: ${this.client.user.id}`);
-          console.log(`[BOT] 📝 Registering ${totalCommands} commands individually...`);
+          console.log(`[BOT] 🔍 Bot Username: ${this.client.user.username}`);
+          console.log(`[BOT] 🔍 Bot Tag: ${this.client.user.tag}`);
+          console.log(`[BOT] 🔍 Bot Ready: ${this.client.isReady()}`);
+          console.log(`[BOT] 🔍 Guild Available: ${guild.available}`);
+          console.log(`[BOT] 🔍 Guild Member Count: ${guild.memberCount}`);
+          
+          // Verificar permisos del bot
+          try {
+            console.log(`[BOT] 🔍 Checking bot permissions...`);
+            const botMember = await guild.members.fetch(this.client.user.id);
+            const permissions = botMember.permissions;
+            console.log(`[BOT] 🔍 Bot has MANAGE_GUILD: ${permissions.has('ManageGuild')}`);
+            console.log(`[BOT] 🔍 Bot has ADMINISTRATOR: ${permissions.has('Administrator')}`);
+            console.log(`[BOT] 🔍 Bot permissions value: ${permissions.bitfield}`);
+            
+            if (!permissions.has('ManageGuild') && !permissions.has('Administrator')) {
+              console.error(`[BOT] ❌ CRITICAL: Bot does NOT have MANAGE_GUILD or ADMINISTRATOR permission!`);
+              console.error(`[BOT]    This is required to register slash commands.`);
+              console.error(`[BOT]    Please give the bot MANAGE_GUILD permission in server settings.`);
+            }
+          } catch (permErr) {
+            console.error(`[BOT] ❌ Error checking permissions: ${permErr.message}`);
+          }
+          
+          // Verificar que guild.commands esté disponible
+          try {
+            console.log(`[BOT] 🔍 Testing guild.commands access...`);
+            const testFetch = await Promise.race([
+              guild.commands.fetch(),
+              new Promise((_, reject) => setTimeout(() => reject(new Error('Test fetch timeout')), 5000))
+            ]);
+            console.log(`[BOT] ✅ guild.commands.fetch() works! Found ${testFetch.size} commands`);
+          } catch (testErr) {
+            console.error(`[BOT] ❌ CRITICAL: guild.commands.fetch() failed: ${testErr.message}`);
+            console.error(`[BOT]    This means the bot cannot access commands API!`);
+            console.error(`[BOT]    Possible causes:`);
+            console.error(`[BOT]      1. Bot doesn't have MANAGE_GUILD permission`);
+            console.error(`[BOT]      2. Bot application doesn't have 'applications.commands' scope`);
+            console.error(`[BOT]      3. Network/firewall blocking Discord API`);
+            return; // No podemos continuar si no podemos acceder a commands
+          }
+          
+          console.log(`[BOT] 🔍 ========== FIN DIAGNÓSTICO ==========`);
           
           // Limpiar comandos existentes primero
           try {
             console.log(`[BOT] 🗑️  Cleaning existing commands...`);
+            const cleanStart = Date.now();
             const existing = await Promise.race([
               guild.commands.fetch(),
               new Promise((_, reject) => setTimeout(() => reject(new Error('Fetch timeout')), 10000))
             ]);
+            const cleanTime = ((Date.now() - cleanStart) / 1000).toFixed(2);
             const existingCount = existing.size;
-            console.log(`[BOT] 📊 Found ${existingCount} existing command(s) to delete`);
+            console.log(`[BOT] 📊 Found ${existingCount} existing command(s) to delete (fetch took ${cleanTime}s)`);
             
             if (existingCount > 0) {
               for (const cmd of existing.values()) {
                 try {
-                  await guild.commands.delete(cmd.id).catch(() => {});
-                  console.log(`[BOT] 🗑️  Deleted: ${cmd.name}`);
+                  const delStart = Date.now();
+                  await Promise.race([
+                    guild.commands.delete(cmd.id),
+                    new Promise((_, reject) => setTimeout(() => reject(new Error('Delete timeout')), 5000))
+                  ]);
+                  const delTime = ((Date.now() - delStart) / 1000).toFixed(2);
+                  console.log(`[BOT] 🗑️  Deleted: ${cmd.name} (${delTime}s)`);
                 } catch (delErr) {
                   console.warn(`[BOT] ⚠️  Failed to delete ${cmd.name}: ${delErr.message}`);
                 }
@@ -294,10 +344,14 @@ export class Bot {
               await new Promise(r => setTimeout(r, 2000)); // Wait 2s after deletion
             }
           } catch (cleanErr) {
-            console.warn(`[BOT] ⚠️  Error cleaning commands: ${cleanErr.message}`);
+            console.error(`[BOT] ❌ Error cleaning commands: ${cleanErr.message}`);
+            console.error(`[BOT]    Stack: ${cleanErr.stack}`);
           }
           
           // Registrar comandos individualmente usando guild.commands.create()
+          console.log(`[BOT] 📝 Starting individual command registration...`);
+          console.log(`[BOT] 📝 Total commands to register: ${totalCommands}`);
+          
           let success = 0;
           let failed = 0;
           const failedCommands = [];
@@ -308,19 +362,36 @@ export class Bot {
             
             try {
               console.log(`[BOT] 📝 [${i + 1}/${totalCommands}] Registering: ${cmd.name}...`);
+              console.log(`[BOT]    Command data: name="${cmd.name}", description="${cmd.description?.substring(0, 50)}..."`);
+              console.log(`[BOT]    Options: ${cmd.options?.length || 0}`);
+              console.log(`[BOT]    Timestamp: ${new Date().toISOString()}`);
               
-              // Crear timeout para cada comando (10 segundos)
+              // Crear el comando con logging detallado
+              console.log(`[BOT]    [${new Date().toISOString()}] Calling guild.commands.create()...`);
+              
               const createPromise = guild.commands.create(cmd);
+              
+              // Progress indicator cada 2 segundos
+              const progressInterval = setInterval(() => {
+                const elapsed = ((Date.now() - cmdStartTime) / 1000).toFixed(1);
+                console.log(`[BOT]    [${new Date().toISOString()}] ⏳ Still creating ${cmd.name}... (${elapsed}s elapsed)`);
+              }, 2000);
+              
               const timeoutPromise = new Promise((_, reject) => 
-                setTimeout(() => reject(new Error(`Command ${cmd.name} timeout after 10s`)), 10000)
+                setTimeout(() => {
+                  clearInterval(progressInterval);
+                  reject(new Error(`Command ${cmd.name} timeout after 20s`));
+                }, 20000) // 20 segundos timeout
               );
               
               const created = await Promise.race([createPromise, timeoutPromise]);
+              clearInterval(progressInterval);
               
               if (created && created.id) {
                 success++;
                 const cmdTime = ((Date.now() - cmdStartTime) / 1000).toFixed(2);
                 console.log(`[BOT] ✅ [${i + 1}/${totalCommands}] Registered: ${cmd.name} (${cmdTime}s) - ID: ${created.id}`);
+                console.log(`[BOT]    Created at: ${new Date().toISOString()}`);
                 
                 // Verificar vouches-restore específicamente
                 if (cmd.name === 'vouches-restore') {
@@ -330,9 +401,9 @@ export class Bot {
                 throw new Error('Command created but no ID returned');
               }
               
-              // Delay entre comandos para evitar rate limits (300ms como reload-commands.js)
+              // Delay entre comandos para evitar rate limits (500ms)
               if (i < validCommands.length - 1) {
-                await new Promise(r => setTimeout(r, 300));
+                await new Promise(r => setTimeout(r, 500));
               }
               
             } catch (cmdErr) {
@@ -341,11 +412,22 @@ export class Bot {
               const cmdTime = ((Date.now() - cmdStartTime) / 1000).toFixed(2);
               
               console.error(`[BOT] ❌ [${i + 1}/${totalCommands}] Failed: ${cmd.name} (${cmdTime}s)`);
-              console.error(`[BOT]    Error: ${cmdErr.message || cmdErr.code || 'Unknown error'}`);
+              console.error(`[BOT]    Error type: ${cmdErr.constructor?.name || 'Unknown'}`);
+              console.error(`[BOT]    Error code: ${cmdErr.code || 'N/A'}`);
+              console.error(`[BOT]    Error status: ${cmdErr.status || 'N/A'}`);
+              console.error(`[BOT]    Error message: ${cmdErr.message || 'Unknown error'}`);
+              console.error(`[BOT]    Error name: ${cmdErr.name || 'N/A'}`);
+              
+              if (cmdErr.stack) {
+                const stackLines = cmdErr.stack.split('\n').slice(0, 5);
+                stackLines.forEach((line, idx) => {
+                  console.error(`[BOT]    Stack[${idx}]: ${line}`);
+                });
+              }
               
               // Si es rate limit, esperar más tiempo
               if (cmdErr.code === 50035 || cmdErr.status === 429 || cmdErr.retry_after || cmdErr.message?.includes('rate limit')) {
-                const waitTime = cmdErr.retry_after ? (cmdErr.retry_after * 1000) : 2000;
+                const waitTime = cmdErr.retry_after ? (cmdErr.retry_after * 1000) : 3000;
                 console.log(`[BOT] ⏳ Rate limited on ${cmd.name}, waiting ${waitTime/1000}s...`);
                 await new Promise(r => setTimeout(r, waitTime));
                 
@@ -354,7 +436,7 @@ export class Bot {
                   console.log(`[BOT] 🔄 Retrying: ${cmd.name}...`);
                   const retryCreated = await Promise.race([
                     guild.commands.create(cmd),
-                    new Promise((_, reject) => setTimeout(() => reject(new Error('Retry timeout')), 10000))
+                    new Promise((_, reject) => setTimeout(() => reject(new Error('Retry timeout')), 20000))
                   ]);
                   if (retryCreated && retryCreated.id) {
                     success++;
@@ -364,6 +446,7 @@ export class Bot {
                   }
                 } catch (retryErr) {
                   console.error(`[BOT] ❌ Retry failed for ${cmd.name}: ${retryErr.message}`);
+                  console.error(`[BOT]    Retry error code: ${retryErr.code || 'N/A'}`);
                 }
               }
               
@@ -372,9 +455,13 @@ export class Bot {
             }
           }
           
-          // Resultado final
+          // Resultado final con estadísticas detalladas
           const totalTime = ((Date.now() - startTime) / 1000).toFixed(2);
-          console.log(`[BOT] ✅ ${guild.name}: ${success}/${totalCommands} commands registered successfully, ${failed} failed (took ${totalTime}s)`);
+          console.log(`[BOT] ✅ ========== RESULTADO FINAL ==========`);
+          console.log(`[BOT] ✅ ${guild.name}: ${success}/${totalCommands} commands registered successfully`);
+          console.log(`[BOT] ✅ Failed: ${failed} commands`);
+          console.log(`[BOT] ✅ Total time: ${totalTime}s`);
+          console.log(`[BOT] ✅ Average time per command: ${(totalTime / totalCommands).toFixed(2)}s`);
           
           if (failedCommands.length > 0) {
             console.warn(`[BOT] ⚠️  Failed commands: ${failedCommands.join(', ')}`);
@@ -383,19 +470,28 @@ export class Bot {
           // Verificar vouches-restore en los comandos registrados
           try {
             console.log(`[BOT] 🔍 Verifying vouches-restore registration...`);
+            const verifyStart = Date.now();
             const registered = await Promise.race([
               guild.commands.fetch(),
-              new Promise((_, reject) => setTimeout(() => reject(new Error('Fetch timeout')), 5000))
+              new Promise((_, reject) => setTimeout(() => reject(new Error('Fetch timeout')), 10000))
             ]);
+            const verifyTime = ((Date.now() - verifyStart) / 1000).toFixed(2);
+            console.log(`[BOT] 🔍 Verification fetch took ${verifyTime}s`);
+            console.log(`[BOT] 🔍 Total registered commands found: ${registered.size}`);
+            
             const vouchesRestore = registered.find(c => c.name === 'vouches-restore');
             if (vouchesRestore) {
               console.log(`[BOT] ✅ vouches-restore verified in registered commands! ID: ${vouchesRestore.id}`);
             } else {
               console.warn(`[BOT] ⚠️  vouches-restore NOT found in registered commands!`);
+              console.warn(`[BOT]    Registered commands: ${Array.from(registered.values()).map(c => c.name).slice(0, 10).join(', ')}...`);
             }
           } catch (verifyErr) {
-            console.warn(`[BOT] ⚠️  Could not verify vouches-restore: ${verifyErr.message}`);
+            console.error(`[BOT] ❌ Could not verify vouches-restore: ${verifyErr.message}`);
+            console.error(`[BOT]    Verify error stack: ${verifyErr.stack}`);
           }
+          
+          console.log(`[BOT] ✅ ========== FIN REGISTRO ==========`);
           
           return; // Salir temprano, ya procesamos todo
           
