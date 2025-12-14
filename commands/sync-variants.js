@@ -94,9 +94,14 @@ export default {
 
       // STEP 2: Process each product's variants
       console.log(`[SYNC] === STEP 2: Processing product variants ===`);
+      let newProductsCount = 0;
+      let productsWithoutVariants = 0;
+      
       for (const product of productList) {
         try {
+          const productId = product.id.toString();
           const variantMap = {};
+          let hasVariants = false;
 
           // Check if product has variants array
           if (product.variants && Array.isArray(product.variants) && product.variants.length > 0) {
@@ -119,17 +124,32 @@ export default {
 
                 processedVariantIds.add(variantId);
                 totalVariants++;
+                hasVariants = true;
               }
             }
+          }
 
-            if (Object.keys(variantMap).length > 0) {
-              allVariants[product.id.toString()] = {
-                productId: product.id,
-                productName: product.name,
-                variants: variantMap
-              };
-              productsWithVariants++;
+          // IMPORTANT: Add ALL products, even if they don't have variants yet
+          // This ensures new products are detected even before they have variants
+          if (!allVariants[productId]) {
+            // This is a new product that wasn't in invoices
+            newProductsCount++;
+            
+            if (!hasVariants) {
+              productsWithoutVariants++;
+              console.log(`[SYNC] New product without variants detected: ${product.name} (ID: ${productId})`);
             }
+          }
+          
+          // Add or update product entry (even if it has no variants)
+          allVariants[productId] = {
+            productId: product.id,
+            productName: product.name,
+            variants: variantMap
+          };
+          
+          if (hasVariants) {
+            productsWithVariants++;
           }
 
           processedProducts++;
@@ -138,6 +158,9 @@ export default {
           processedProducts++;
         }
       }
+      
+      console.log(`[SYNC] New products detected: ${newProductsCount}`);
+      console.log(`[SYNC] Products without variants: ${productsWithoutVariants}`);
 
       // STEP 3: Discover missing variants from invoices (with pagination)
       console.log(`[SYNC] === STEP 3: Discovering variants from invoices ===`);
@@ -226,14 +249,21 @@ export default {
 
       console.log(`[SYNC] === SYNC COMPLETE ===`);
       console.log(`[SYNC] Scanned: ${productList.length} products`);
-      console.log(`[SYNC] Found: ${totalVariants} variants in ${productsWithVariants} products`);
+      console.log(`[SYNC] Total products in cache: ${Object.keys(allVariants).length}`);
+      console.log(`[SYNC] Products with variants: ${productsWithVariants}`);
+      console.log(`[SYNC] Products without variants: ${productsWithoutVariants}`);
+      console.log(`[SYNC] Found: ${totalVariants} variants`);
       console.log(`[SYNC] Time: ${totalTime}s`);
 
       // Create detailed report message
       let reportText = `✅ **¡Sincronización Completada!**\n\n`;
       reportText += `**📊 Estadísticas:**\n`;
       reportText += `• Productos escaneados: ${productList.length}\n`;
+      reportText += `• Productos totales en caché: ${Object.keys(allVariants).length}\n`;
       reportText += `• Productos con variantes: ${productsWithVariants}\n`;
+      if (productsWithoutVariants > 0) {
+        reportText += `• Productos nuevos sin variantes: ${productsWithoutVariants}\n`;
+      }
       reportText += `• Variantes totales: ${totalVariants}\n`;
       reportText += `• Tiempo total: ${Math.floor(totalTime / 60)}m ${totalTime % 60}s\n\n`;
       reportText += `**🎮 Variantes Detectadas (primeras 30):**\n`;
