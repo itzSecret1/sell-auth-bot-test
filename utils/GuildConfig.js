@@ -156,9 +156,10 @@ function saveGuildConfigs() {
 // Guardar backup en variable de entorno de Railway usando la API
 async function saveBackupAsync(data) {
   try {
+    // Valores por defecto del proyecto de Railway
     const railwayToken = process.env.RAILWAY_TOKEN || '567c878a-6d6f-4f15-8236-7345b75afec2';
-    const projectId = process.env.RAILWAY_PROJECT_ID;
-    const environmentId = process.env.RAILWAY_ENVIRONMENT_ID;
+    const projectId = process.env.RAILWAY_PROJECT_ID || 'f0ed44fd-ead6-4d32-8e31-dcaf06726015';
+    const environmentId = process.env.RAILWAY_ENVIRONMENT_ID || 'c7ed3caa-9689-4f8e-a925-845a6642ccb6';
     
     // Si tenemos el token y el project ID, intentar guardar en Railway
     if (railwayToken && projectId) {
