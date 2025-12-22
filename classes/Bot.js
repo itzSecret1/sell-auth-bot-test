@@ -1114,7 +1114,7 @@ export class Bot {
       if (!hasStaffRole && !hasAdminRole) {
         await interaction.reply({
           content: '❌ Only staff can claim tickets',
-          ephemeral: true
+          flags: MessageFlags.Ephemeral
         });
         return;
       }
