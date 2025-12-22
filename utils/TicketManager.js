@@ -190,6 +190,38 @@ export class TicketManager {
         });
       }
 
+      // Verificar que tenemos una categoría válida antes de crear el canal
+      if (!ticketCategory || !ticketCategory.id) {
+        console.error(`[TICKET] ERROR: No category found or created for ${categoryName}, creating emergency category...`);
+        // Crear categoría de emergencia si no existe
+        try {
+          ticketCategory = await guild.channels.create({
+            name: categoryName,
+            type: ChannelType.GuildCategory,
+            permissionOverwrites: [
+              {
+                id: guild.id,
+                deny: [PermissionFlagsBits.ViewChannel]
+              },
+              {
+                id: user.id,
+                allow: [
+                  PermissionFlagsBits.ViewChannel, 
+                  PermissionFlagsBits.SendMessages,
+                  PermissionFlagsBits.AttachFiles,
+                  PermissionFlagsBits.ReadMessageHistory,
+                  PermissionFlagsBits.EmbedLinks
+                ]
+              }
+            ]
+          });
+          console.log(`[TICKET] ✅ Emergency category created: ${ticketCategory.name}`);
+        } catch (categoryError) {
+          console.error(`[TICKET] CRITICAL: Failed to create emergency category:`, categoryError);
+          throw new Error(`Failed to create or find category for ticket: ${categoryError.message}`);
+        }
+      }
+
       // Crear canal del ticket con formato específico
       let channelName;
       if (category.toLowerCase() === 'replaces') {
@@ -198,13 +230,36 @@ export class TicketManager {
         channelName = `${category.toLowerCase()}-${user.username.toLowerCase()}`;
       }
 
-      // Crear canal del ticket
-      const ticketChannel = await guild.channels.create({
+      // Crear canal del ticket - SIEMPRE con parent (categoría)
+      const channelCreateOptions = {
         name: channelName,
         type: ChannelType.GuildText,
-        parent: ticketCategory.id,
         permissionOverwrites: permissionOverwrites
-      });
+      };
+
+      // Asegurar que siempre se asigne una categoría
+      if (ticketCategory && ticketCategory.id) {
+        channelCreateOptions.parent = ticketCategory.id;
+        console.log(`[TICKET] Creating channel "${channelName}" in category "${ticketCategory.name}" (ID: ${ticketCategory.id})`);
+      } else {
+        console.error(`[TICKET] WARNING: ticketCategory is invalid, but proceeding with channel creation`);
+      }
+
+      const ticketChannel = await guild.channels.create(channelCreateOptions);
+      
+      // Verificar que el canal se creó con categoría
+      if (ticketChannel.parentId !== ticketCategory.id) {
+        console.warn(`[TICKET] WARNING: Channel created but parent mismatch. Expected: ${ticketCategory.id}, Got: ${ticketChannel.parentId}`);
+        // Intentar mover el canal a la categoría correcta
+        try {
+          await ticketChannel.setParent(ticketCategory.id);
+          console.log(`[TICKET] ✅ Channel moved to correct category`);
+        } catch (moveError) {
+          console.error(`[TICKET] ERROR: Failed to move channel to category:`, moveError);
+        }
+      } else {
+        console.log(`[TICKET] ✅ Channel created successfully in category "${ticketCategory.name}"`);
+      }
 
       // Crear embed del ticket
       const ticketEmbed = new EmbedBuilder()
