@@ -1143,6 +1143,10 @@ export class Bot {
       const ticketId = customId.replace('ticket_claim_', '');
       console.log(`[TICKET] Claim button clicked for ticket: ${ticketId}`);
       
+      // CRÍTICO: Recargar tickets antes de buscar para asegurar datos actualizados
+      const { TicketManager } = await import('../utils/TicketManager.js');
+      TicketManager.reloadTickets();
+      
       // Intentar buscar por ID primero
       let ticket = TicketManager.getTicket(ticketId);
       
@@ -1150,6 +1154,16 @@ export class Bot {
       if (!ticket && interaction.channel) {
         console.log(`[TICKET] Ticket not found by ID, trying to find by channel: ${interaction.channel.id}`);
         ticket = TicketManager.getTicketByChannel(interaction.channel.id, true); // verbose = true para debugging
+      }
+      
+      // Último intento: buscar en todos los tickets por canal
+      if (!ticket && interaction.channel) {
+        console.log(`[TICKET] Trying alternative search methods...`);
+        const allTickets = TicketManager.getAllTickets();
+        ticket = Object.values(allTickets).find(t => t.channelId === interaction.channel.id);
+        if (ticket) {
+          console.log(`[TICKET] Found ticket via alternative search: ${ticket.id}`);
+        }
       }
       
       if (!ticket) {
@@ -1180,6 +1194,9 @@ export class Bot {
       const ticketId = customId.replace('ticket_close_', '');
       console.log(`[TICKET] Close button clicked for ticket: ${ticketId}`);
       
+      // CRÍTICO: Recargar tickets antes de buscar para asegurar datos actualizados
+      TicketManager.reloadTickets();
+      
       // Intentar buscar por ID primero
       let ticket = TicketManager.getTicket(ticketId);
       
@@ -1187,6 +1204,16 @@ export class Bot {
       if (!ticket && interaction.channel) {
         console.log(`[TICKET] Ticket not found by ID, trying to find by channel: ${interaction.channel.id}`);
         ticket = TicketManager.getTicketByChannel(interaction.channel.id, true); // verbose = true para debugging
+      }
+      
+      // Último intento: buscar en todos los tickets por canal
+      if (!ticket && interaction.channel) {
+        console.log(`[TICKET] Trying alternative search methods...`);
+        const allTickets = TicketManager.getAllTickets();
+        ticket = Object.values(allTickets).find(t => t.channelId === interaction.channel.id);
+        if (ticket) {
+          console.log(`[TICKET] Found ticket via alternative search: ${ticket.id}`);
+        }
       }
       
       if (!ticket) {
@@ -1965,6 +1992,7 @@ export class Bot {
                          stepName === 'staff_role' ? 'staffRoleId' :
                          stepName === 'customer_role' ? 'customerRoleId' :
                          stepName === 'member_role' ? 'memberRoleId' :
+                         stepName === 'viewer_role' ? 'viewerRoleId' :
                          'trialAdminRoleId';
         session.config[configKey] = value;
       } else {
@@ -2035,6 +2063,7 @@ export class Bot {
       ratingChannelId: session.config.ratingChannelId || null,
       spamChannelId: session.config.spamChannelId || null,
       trialAdminRoleId: session.config.trialAdminRoleId || null,
+      viewerRoleId: session.config.viewerRoleId || null,
       botStatusChannelId: session.config.botStatusChannelId || null,
       automodChannelId: session.config.automodChannelId || null,
       backupChannelId: session.config.backupChannelId || null,

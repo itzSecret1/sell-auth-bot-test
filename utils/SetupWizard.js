@@ -18,6 +18,7 @@ export class SetupWizard {
         ratingChannelId: null,
         spamChannelId: null,
         trialAdminRoleId: null,
+        viewerRoleId: null,
         vouchesChannelId: null,
         verificationChannelId: null,
         memberRoleId: null,
@@ -101,7 +102,15 @@ export class SetupWizard {
         optional: true
       },
       {
-        title: '🤖 Step 9: Bot Status Channel',
+        title: '👁️ Step 9: Viewer Role',
+        description: '**What is it?**\nThis role has very limited access:\n• Can ONLY use `/invoice-view` command\n• Can view tickets (read-only access)\n• Cannot use any other bot commands\n\n**What is it for?**\nFor users who need to check invoices and view tickets but should not have access to other bot functions.\n\n**Is it mandatory?** No, it is completely optional.',
+        fieldName: 'Viewer Role',
+        fieldValue: session.config.viewerRoleId ? `<@&${session.config.viewerRoleId}>` : 'Not configured (Optional)',
+        buttonId: 'setup_viewer_role',
+        optional: true
+      },
+      {
+        title: '🤖 Step 10: Bot Status Channel',
         description: '**What is it?**\nThis channel receives notifications about the bot status:\n• When the bot connects (online)\n• When the bot disconnects (offline)\n• Bot operational status\n\n**Is it mandatory?** No, but useful to monitor bot status.',
         fieldName: 'Bot Status Channel',
         fieldValue: session.config.botStatusChannelId ? `<#${session.config.botStatusChannelId}>` : 'Not configured (Optional)',

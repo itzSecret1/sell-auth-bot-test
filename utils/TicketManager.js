@@ -1655,6 +1655,21 @@ export class TicketManager {
   }
 
   /**
+   * Recargar tickets manualmente (útil para forzar actualización)
+   */
+  static reloadTickets() {
+    loadTickets();
+  }
+
+  /**
+   * Obtener todos los tickets
+   */
+  static getAllTickets() {
+    loadTickets();
+    return ticketsData.tickets;
+  }
+
+  /**
    * Recuperar tickets al iniciar el bot - verificar que los canales existan
    */
   static async recoverTickets(guild) {

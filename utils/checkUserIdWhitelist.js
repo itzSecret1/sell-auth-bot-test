@@ -20,8 +20,20 @@ export async function checkUserIdWhitelist(command, interaction, config) {
       return true;
     }
 
+    // Check if user has viewer role (only invoice-view access and can view tickets)
+    const viewerRoleId = guildConfig?.viewerRoleId || config.BOT_VIEWER_ROLE_ID;
+    if (viewerRoleId && member.roles.cache.has(viewerRoleId)) {
+      // Viewer can only use invoice-view command
+      if (interaction.commandName === 'invoice-view') {
+        return true;
+      }
+      // Viewers can also view tickets (read-only), but cannot use other commands
+      return false;
+    }
+
     // Check if user has trial admin role (only sync-variants access)
-    if (config.BOT_TRIAL_ADMIN_ROLE_ID && member.roles.cache.has(config.BOT_TRIAL_ADMIN_ROLE_ID)) {
+    const trialAdminRoleId = guildConfig?.trialAdminRoleId || config.BOT_TRIAL_ADMIN_ROLE_ID;
+    if (trialAdminRoleId && member.roles.cache.has(trialAdminRoleId)) {
       // Trial admin can only use sync-variants
       if (interaction.commandName === 'sync-variants') {
         return true;
