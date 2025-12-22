@@ -1092,11 +1092,32 @@ export class Bot {
         const guild = interaction.guild;
         const user = interaction.user;
         
-        const result = await TicketManager.createTicket(guild, user, category);
-        
-        await interaction.editReply({
-          content: `✅ Ticket ${result.ticketId} created in ${result.channel}`
-        });
+        try {
+          const result = await TicketManager.createTicket(guild, user, category);
+          
+          await interaction.editReply({
+            content: `✅ Ticket ${result.ticketId} created in ${result.channel}`
+          });
+        } catch (error) {
+          console.error(`[BUTTON] Error:`, error);
+          
+          // Manejar errores específicos
+          let errorMessage = '❌ An error occurred while creating your ticket.';
+          
+          if (error.message && error.message.includes('already have an open ticket')) {
+            errorMessage = '❌ You already have an open ticket. Please close it before creating a new one.';
+          } else if (error.message && error.message.includes('No category found')) {
+            errorMessage = '❌ Ticket category not configured. Please contact an administrator.';
+          } else if (error.message && error.message.includes('Missing permissions')) {
+            errorMessage = '❌ Bot is missing required permissions. Please contact an administrator.';
+          } else if (error.message) {
+            errorMessage = `❌ ${error.message}`;
+          }
+          
+          await interaction.editReply({
+            content: errorMessage
+          });
+        }
         return;
       }
     }

@@ -98,12 +98,18 @@ export class TicketManager {
    */
   static async createTicket(guild, user, category, invoiceId = null) {
     try {
+      // CRÍTICO: Recargar tickets antes de verificar para evitar race conditions
+      loadTickets();
+      
       // Verificar que el usuario no tenga un ticket abierto
       const userOpenTickets = Object.values(ticketsData.tickets).filter(
-        t => t.userId === user.id && !t.closed
+        t => t.userId === user.id && !t.closed && t.guildId === guild.id
       );
       
       if (userOpenTickets.length > 0) {
+        // Log para debugging
+        console.log(`[TICKET] User ${user.id} already has ${userOpenTickets.length} open ticket(s):`, 
+          userOpenTickets.map(t => `${t.id} (${t.channelId})`).join(', '));
         throw new Error('You already have an open ticket. Please close it before creating a new one.');
       }
       
