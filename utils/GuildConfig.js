@@ -153,19 +153,83 @@ function saveGuildConfigs() {
   return false;
 }
 
-// Guardar backup en variable de entorno de forma asíncrona (no bloquea)
-function saveBackupAsync(data) {
-  // Intentar actualizar variable de entorno de Railway usando la API
-  // Esto es opcional y no crítico, por eso es asíncrono
-  if (process.env.RAILWAY_ENVIRONMENT && process.env.RAILWAY_PROJECT_ID) {
-    // Railway está disponible, pero actualizar variables de entorno requiere API key
-    // Por ahora, solo loguear que intentaríamos guardar
-    console.log(`[GUILD CONFIG] 💾 Backup data prepared (${data.length} bytes) - would save to Railway env if API key available`);
-  } else {
-    // Guardar en variable de entorno local (útil para desarrollo)
-    // Nota: Esto no persiste en Railway sin configuración adicional
-    // Pero al menos tenemos el archivo guardado
-    console.log(`[GUILD CONFIG] 💾 Backup data prepared (${data.length} bytes)`);
+// Guardar backup en variable de entorno de Railway usando la API
+async function saveBackupAsync(data) {
+  try {
+    const railwayToken = process.env.RAILWAY_TOKEN || '567c878a-6d6f-4f15-8236-7345b75afec2';
+    const projectId = process.env.RAILWAY_PROJECT_ID;
+    const environmentId = process.env.RAILWAY_ENVIRONMENT_ID;
+    
+    // Si tenemos el token y el project ID, intentar guardar en Railway
+    if (railwayToken && projectId) {
+      try {
+        // Comprimir datos si son muy grandes (Railway tiene límite de 64KB por variable)
+        let backupData = data;
+        if (data.length > 50000) {
+          // Si es muy grande, usar solo los campos esenciales
+          const essential = {};
+          for (const [guildId, config] of Object.entries(guildConfigs)) {
+            essential[guildId] = {
+              adminRoleId: config.adminRoleId,
+              staffRoleId: config.staffRoleId,
+              guildName: config.guildName,
+              configuredAt: config.configuredAt,
+              lastUpdated: config.lastUpdated
+            };
+          }
+          backupData = JSON.stringify(essential);
+          console.log(`[GUILD CONFIG] 💾 Compressed backup data (${data.length} -> ${backupData.length} bytes)`);
+        }
+        
+        // Actualizar variable de entorno usando Railway API
+        const response = await axios.patch(
+          `https://api.railway.app/v1/variables/${RAILWAY_ENV_BACKUP_KEY}`,
+          {
+            value: backupData
+          },
+          {
+            headers: {
+              'Authorization': `Bearer ${railwayToken}`,
+              'Content-Type': 'application/json'
+            },
+            params: {
+              projectId: projectId,
+              environmentId: environmentId || 'production'
+            }
+          }
+        ).catch(async (error) => {
+          // Si la variable no existe, crearla
+          if (error.response?.status === 404) {
+            return await axios.post(
+              'https://api.railway.app/v1/variables',
+              {
+                name: RAILWAY_ENV_BACKUP_KEY,
+                value: backupData,
+                projectId: projectId,
+                environmentId: environmentId || 'production'
+              },
+              {
+                headers: {
+                  'Authorization': `Bearer ${railwayToken}`,
+                  'Content-Type': 'application/json'
+                }
+              }
+            );
+          }
+          throw error;
+        });
+        
+        console.log(`[GUILD CONFIG] ✅ Backup saved to Railway environment variable (${backupData.length} bytes)`);
+      } catch (apiError) {
+        // No crítico si falla, solo loguear
+        console.warn(`[GUILD CONFIG] ⚠️ Could not save backup to Railway: ${apiError.response?.data?.message || apiError.message}`);
+      }
+    } else {
+      console.log(`[GUILD CONFIG] 💾 Backup data prepared (${data.length} bytes) - Railway API not configured`);
+    }
+  } catch (error) {
+    // No crítico, solo loguear
+    console.warn(`[GUILD CONFIG] ⚠️ Backup save error: ${error.message}`);
   }
 }
 
