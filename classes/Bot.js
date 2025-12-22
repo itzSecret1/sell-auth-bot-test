@@ -2061,7 +2061,23 @@ export class Bot {
       return;
     }
 
-    console.log(`[SETUP] ✅ Configuration saved successfully for guild: ${session.guildId} (${interaction.guild.name})`);
+    // Verificar inmediatamente que se guardó correctamente
+    const verifyConfig = GuildConfig.getConfig(session.guildId);
+    if (!verifyConfig || verifyConfig.adminRoleId !== session.config.adminRoleId) {
+      console.error(`[SETUP] ⚠️ Warning: Configuration may not have persisted correctly. Retrying...`);
+      // Reintentar guardado
+      const retryConfig = GuildConfig.setConfig(session.guildId, guildConfig);
+      if (!retryConfig || retryConfig.adminRoleId !== session.config.adminRoleId) {
+        await interaction.update({
+          content: '❌ Error: No se pudo verificar que la configuración se guardó correctamente. Por favor, verifica manualmente o intenta de nuevo.',
+          embeds: [],
+          components: []
+        });
+        return;
+      }
+    }
+
+    console.log(`[SETUP] ✅ Configuration saved and verified successfully for guild: ${session.guildId} (${interaction.guild.name})`);
 
     const embed = new EmbedBuilder()
       .setColor(0x00ff00)
