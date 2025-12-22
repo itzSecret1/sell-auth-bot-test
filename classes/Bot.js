@@ -1592,7 +1592,24 @@ export class Bot {
         ticket.closedByType = 'user';
         TicketManager.saveTickets();
         
-        const channel = await interaction.guild.channels.fetch(ticket.channelId);
+        let channel;
+        try {
+          channel = await interaction.guild.channels.fetch(ticket.channelId);
+        } catch (error) {
+          console.error(`[TICKET] Error fetching channel ${ticket.channelId}:`, error.message);
+          // Si el canal no existe, marcar el ticket como cerrado y continuar
+          ticket.closed = true;
+          ticket.closedAt = new Date().toISOString();
+          ticket.closeReason = 'Channel deleted';
+          TicketManager.saveTickets();
+          
+          await interaction.followUp({
+            content: '⚠️ **Ticket Channel Not Found**\n\nThe ticket channel has been deleted. The ticket has been marked as closed.',
+            flags: MessageFlags.Ephemeral
+          });
+          return;
+        }
+        
         if (channel) {
           const closingEmbed = new EmbedBuilder()
             .setColor(0xff9900)
@@ -1629,7 +1646,24 @@ export class Bot {
         TicketManager.saveTickets();
         
         // Cerrar directamente sin reviews
-        const channel = await interaction.guild.channels.fetch(ticket.channelId);
+        let channel;
+        try {
+          channel = await interaction.guild.channels.fetch(ticket.channelId);
+        } catch (error) {
+          console.error(`[TICKET] Error fetching channel ${ticket.channelId}:`, error.message);
+          // Si el canal no existe, marcar el ticket como cerrado y continuar
+          ticket.closed = true;
+          ticket.closedAt = new Date().toISOString();
+          ticket.closeReason = 'Channel deleted';
+          TicketManager.saveTickets();
+          
+          await interaction.reply({
+            content: '⚠️ **Ticket Channel Not Found**\n\nThe ticket channel has been deleted. The ticket has been marked as closed.',
+            flags: MessageFlags.Ephemeral
+          });
+          return;
+        }
+        
         if (channel) {
           const closingEmbed = new EmbedBuilder()
             .setColor(0xff9900)
@@ -2558,26 +2592,71 @@ export class Bot {
   }
 
   detectInvoice(text) {
-    // Detectar patrones comunes de invoice:
-    // - Formato con guión: 3bcf919f0e26c-0000008525997
+    // Detectar patrones comunes de invoice de SellAuth:
+    // - Formato con guión: 3bcf919f0e26c-0000008525997 (formato más común de SellAuth)
+    // - Formato con guión corto: abc123-123456
+    // - Solo números después del guión: abc123def-1234567890
     // - INV-12345
     // - Invoice: ABC123
     // - #12345
     // - Combinaciones de letras y números (mínimo 5 caracteres)
-    const patterns = [
-      /\b([a-z0-9]{8,}-[0-9]{10,})\b/i, // Formato: abc123def-1234567890
-      /(?:invoice|inv)[\s:]*([a-z0-9-]{5,})/i,
-      /#([a-z0-9]{5,})/i,
-      /\b([a-z]{2,}\d{3,}|\d{3,}[a-z]{2,})\b/i
+    
+    // Primero intentar el formato más común de SellAuth: letras-números con guión
+    const sellAuthPattern = /\b([a-z0-9]{8,20}-[0-9]{7,15})\b/i; // Formato SellAuth: abc123def-1234567890
+    let match = text.match(sellAuthPattern);
+    if (match) {
+      const invoiceId = match[1];
+      console.log(`[INVOICE-DETECT] ✅ Detected SellAuth invoice format: ${invoiceId}`);
+      return invoiceId;
+    }
+    
+    // Patrón más flexible para formato con guión
+    const flexiblePattern = /\b([a-z0-9]{6,}-[0-9]{5,})\b/i;
+    match = text.match(flexiblePattern);
+    if (match) {
+      const invoiceId = match[1];
+      console.log(`[INVOICE-DETECT] ✅ Detected invoice with dash: ${invoiceId}`);
+      return invoiceId;
+    }
+    
+    // Buscar después de palabras clave
+    const keywordPatterns = [
+      /(?:invoice|inv|invoice\s*id|invoice\s*number)[\s:]*([a-z0-9-]{8,})/i,
+      /(?:id|number)[\s:]*([a-z0-9]{8,}-[0-9]{7,})/i
     ];
     
-    for (const pattern of patterns) {
-      const match = text.match(pattern);
-      if (match) {
-        return match[1] || match[0];
+    for (const pattern of keywordPatterns) {
+      match = text.match(pattern);
+      if (match && match[1]) {
+        const invoiceId = match[1].trim();
+        if (invoiceId.length >= 10) { // Mínimo 10 caracteres para ser válido
+          console.log(`[INVOICE-DETECT] ✅ Detected invoice after keyword: ${invoiceId}`);
+          return invoiceId;
+        }
       }
     }
     
+    // Buscar formato #invoice
+    const hashPattern = /#([a-z0-9-]{8,})/i;
+    match = text.match(hashPattern);
+    if (match && match[1]) {
+      const invoiceId = match[1].trim();
+      if (invoiceId.includes('-') || invoiceId.length >= 10) {
+        console.log(`[INVOICE-DETECT] ✅ Detected invoice with hash: ${invoiceId}`);
+        return invoiceId;
+      }
+    }
+    
+    // Último intento: buscar cualquier combinación alfanumérica larga con guión
+    const fallbackPattern = /\b([a-z0-9]{10,}-[0-9]{5,})\b/i;
+    match = text.match(fallbackPattern);
+    if (match) {
+      const invoiceId = match[1];
+      console.log(`[INVOICE-DETECT] ⚠️ Detected potential invoice (fallback): ${invoiceId}`);
+      return invoiceId;
+    }
+    
+    console.log(`[INVOICE-DETECT] ❌ No invoice detected in text: ${text.substring(0, 100)}`);
     return null;
   }
 
@@ -2659,35 +2738,80 @@ export class Bot {
   async verifyInvoice(invoiceId) {
     try {
       const cleanId = invoiceId.trim();
+      console.log(`[INVOICE-VERIFY] 🔍 Verifying invoice: ${cleanId}`);
+      
+      // Intentar primero con el ID completo (si tiene formato con guión)
+      if (cleanId.includes('-')) {
+        // Formato SellAuth: abc123def-1234567890
+        // Intentar buscar directamente por unique_id primero
+        try {
+          // Extraer el número después del guión para búsqueda directa
+          const parts = cleanId.split('-');
+          if (parts.length === 2) {
+            const numericPart = parts[1];
+            // Intentar buscar por el ID numérico directamente
+            try {
+              const directInvoice = await this.api.get(`shops/${this.api.shopId}/invoices/${numericPart}`);
+              if (directInvoice && (directInvoice.unique_id === cleanId || directInvoice.id === parseInt(numericPart))) {
+                console.log(`[INVOICE-VERIFY] ✅ Invoice ${cleanId} verified via direct API call`);
+                return true;
+              }
+            } catch (directError) {
+              // Si falla, continuar con búsqueda por páginas
+              console.log(`[INVOICE-VERIFY] Direct API call failed, trying paginated search...`);
+            }
+          }
+        } catch (error) {
+          console.log(`[INVOICE-VERIFY] Error in direct search, trying paginated...`);
+        }
+      }
       
       // Buscar invoice en la API (similar a invoice-view)
-      for (let page = 1; page <= 10; page++) { // Limitar a 10 páginas para no sobrecargar
+      // Aumentar a 20 páginas para búsqueda más exhaustiva
+      for (let page = 1; page <= 20; page++) {
         try {
           const response = await this.api.get(`shops/${this.api.shopId}/invoices?limit=250&page=${page}`);
           const invoicesList = Array.isArray(response) ? response : response?.data || [];
           
-          if (invoicesList.length === 0) break;
+          if (invoicesList.length === 0) {
+            console.log(`[INVOICE-VERIFY] No more invoices on page ${page}, stopping search`);
+            break;
+          }
+          
+          console.log(`[INVOICE-VERIFY] Searching page ${page}, ${invoicesList.length} invoices`);
           
           for (const inv of invoicesList) {
-            const idMatch = inv.id === cleanId || 
-                            inv.unique_id === cleanId ||
-                            inv.invoice_id === cleanId || 
-                            inv.reference_id === cleanId ||
-                            (inv.id && inv.id.toString() === cleanId) ||
-                            (inv.invoice_id && inv.invoice_id.toString() === cleanId);
+            // Verificar múltiples campos y formatos
+            const idMatch = 
+              inv.id === cleanId || 
+              inv.unique_id === cleanId ||
+              inv.invoice_id === cleanId || 
+              inv.reference_id === cleanId ||
+              (inv.id && inv.id.toString() === cleanId) ||
+              (inv.invoice_id && inv.invoice_id.toString() === cleanId) ||
+              (inv.unique_id && inv.unique_id.toString() === cleanId) ||
+              // Si el invoice tiene formato con guión, verificar ambas partes
+              (cleanId.includes('-') && inv.unique_id && inv.unique_id.includes('-') && inv.unique_id === cleanId) ||
+              // Verificar solo la parte numérica después del guión
+              (cleanId.includes('-') && inv.id && inv.id.toString() === cleanId.split('-')[1]);
             
             if (idMatch) {
-              console.log(`[INVOICE-VERIFY] ✅ Invoice ${cleanId} verified`);
+              console.log(`[INVOICE-VERIFY] ✅ Invoice ${cleanId} verified (found on page ${page})`);
+              console.log(`[INVOICE-VERIFY] Matched fields: id=${inv.id}, unique_id=${inv.unique_id}, invoice_id=${inv.invoice_id}`);
               return true;
             }
           }
         } catch (apiError) {
           console.error(`[INVOICE-VERIFY] Error fetching page ${page}:`, apiError.message);
-          if (apiError.status === 429) break; // Rate limit
+          if (apiError.status === 429) {
+            console.log(`[INVOICE-VERIFY] Rate limited, stopping search`);
+            break; // Rate limit
+          }
+          // Continuar con siguiente página en otros errores
         }
       }
       
-      console.log(`[INVOICE-VERIFY] ❌ Invoice ${cleanId} not found`);
+      console.log(`[INVOICE-VERIFY] ❌ Invoice ${cleanId} not found after searching up to 20 pages`);
       return false;
     } catch (error) {
       console.error('[INVOICE-VERIFY] Error:', error);
