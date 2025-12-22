@@ -9,6 +9,11 @@ export async function checkUserIdWhitelist(command, interaction, config) {
     // Obtener configuración del servidor
     const guildConfig = guildId ? GuildConfig.getConfig(guildId) : null;
     
+    // Verificar si el usuario es dueño del servidor (siempre tiene acceso)
+    if (interaction.guild && interaction.guild.ownerId === userId) {
+      return true;
+    }
+    
     // Verificar rol de admin (del servidor o global)
     const adminRoleId = guildConfig?.adminRoleId || config.BOT_ADMIN_ROLE_ID;
     if (adminRoleId && member.roles.cache.has(adminRoleId)) {
