@@ -102,9 +102,44 @@ export class TicketManager {
       loadTickets();
       
       // Verificar que el usuario no tenga un ticket abierto
-      const userOpenTickets = Object.values(ticketsData.tickets).filter(
+      // IMPORTANTE: También verificar que el canal del ticket exista
+      let userOpenTickets = Object.values(ticketsData.tickets).filter(
         t => t.userId === user.id && !t.closed && t.guildId === guild.id
       );
+      
+      // Verificar si los canales de los tickets aún existen
+      // Si un canal fue eliminado, marcar el ticket como cerrado automáticamente
+      const validOpenTickets = [];
+      for (const ticket of userOpenTickets) {
+        try {
+          const channel = await guild.channels.fetch(ticket.channelId).catch(() => null);
+          if (channel) {
+            // El canal existe, el ticket es válido
+            validOpenTickets.push(ticket);
+          } else {
+            // El canal no existe, marcar el ticket como cerrado
+            console.log(`[TICKET] Channel ${ticket.channelId} for ticket ${ticket.id} no longer exists. Marking as closed.`);
+            ticket.closed = true;
+            ticket.closedAt = new Date().toISOString();
+            ticket.closeReason = 'Channel deleted';
+            ticket.closedBy = null;
+            ticket.closedByType = 'system';
+            saveTickets();
+          }
+        } catch (error) {
+          // Error al verificar el canal, asumir que no existe
+          console.log(`[TICKET] Error checking channel ${ticket.channelId} for ticket ${ticket.id}:`, error.message);
+          ticket.closed = true;
+          ticket.closedAt = new Date().toISOString();
+          ticket.closeReason = 'Channel deleted';
+          ticket.closedBy = null;
+          ticket.closedByType = 'system';
+          saveTickets();
+        }
+      }
+      
+      // Actualizar la lista de tickets abiertos con solo los válidos
+      userOpenTickets = validOpenTickets;
       
       if (userOpenTickets.length > 0) {
         // Log para debugging
