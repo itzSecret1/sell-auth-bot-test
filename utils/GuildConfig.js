@@ -124,7 +124,10 @@ function saveGuildConfigs() {
           console.log(`[GUILD CONFIG]   - Attempt: ${attempt}/${maxRetries}`);
           
           // También guardar en backup (variable de entorno) de forma asíncrona
-          saveBackupAsync(data);
+          // No esperar, pero asegurar que se ejecute
+          saveBackupAsync(data).catch(err => {
+            console.warn(`[GUILD CONFIG] ⚠️ Backup save failed (non-critical): ${err.message}`);
+          });
           
           return true;
         } else {
