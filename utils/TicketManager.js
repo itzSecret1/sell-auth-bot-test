@@ -1744,7 +1744,7 @@ export class TicketManager {
       
       // Obtener todos los canales del servidor para verificación más rápida
       const guildChannels = await guild.channels.fetch().catch(() => new Map());
-      const channelIds = new Set(guildChannels.map(c => c.id));
+      const channelIds = new Set(Array.from(guildChannels.values()).map(c => c.id));
       
       for (const [ticketId, ticket] of Object.entries(ticketsData.tickets)) {
         // Si el ticket ya está cerrado, continuar
