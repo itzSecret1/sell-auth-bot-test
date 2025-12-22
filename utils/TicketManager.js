@@ -133,68 +133,101 @@ export class TicketManager {
         const normalizedExpectedName = normalizeCategoryName(categoryName);
         // Extraer palabra clave principal (primera palabra significativa)
         const categoryKeyword = category.toLowerCase().trim();
-        console.log(`[TICKET] Searching for category with normalized name: "${normalizedExpectedName}" (keyword: "${categoryKeyword}") (original: "${categoryName}")`);
+        
+        // Extraer palabras individuales del nombre esperado para búsqueda flexible
+        const expectedWords = normalizedExpectedName.split(/\s+/).filter(w => w.length > 2);
+        
+        console.log(`[TICKET] Searching for category:`);
+        console.log(`[TICKET]   Expected normalized: "${normalizedExpectedName}"`);
+        console.log(`[TICKET]   Keyword: "${categoryKeyword}"`);
+        console.log(`[TICKET]   Expected words: ${expectedWords.join(', ')}`);
+        
+        // Obtener todas las categorías del servidor
+        const allCategories = guild.channels.cache.filter(c => c.type === ChannelType.GuildCategory);
+        console.log(`[TICKET]   Available categories: ${allCategories.size}`);
         
         // Primero: Buscar categoría existente comparando nombres normalizados (ignora emojis/stickers)
-        ticketCategory = guild.channels.cache.find(c => {
-          if (c.type !== ChannelType.GuildCategory) return false;
-          const normalizedExistingName = normalizeCategoryName(c.name);
-          const matches = normalizedExistingName === normalizedExpectedName;
-          if (matches) {
-            console.log(`[TICKET] ✅ Found category by exact normalized match: "${c.name}" (normalized: "${normalizedExistingName}")`);
+        for (const cat of allCategories.values()) {
+          const normalizedExistingName = normalizeCategoryName(cat.name);
+          if (normalizedExistingName === normalizedExpectedName) {
+            ticketCategory = cat;
+            console.log(`[TICKET] ✅ Found by exact match: "${cat.name}" (normalized: "${normalizedExistingName}")`);
+            break;
           }
-          return matches;
-        });
+        }
         
         // Segundo: Si no se encuentra, buscar por palabra clave (más flexible)
         if (!ticketCategory) {
-          console.log(`[TICKET] No exact match found, searching by keyword: "${categoryKeyword}"`);
-          ticketCategory = guild.channels.cache.find(c => {
-            if (c.type !== ChannelType.GuildCategory) return false;
-            const normalizedExistingName = normalizeCategoryName(c.name);
-            // Buscar si el nombre normalizado contiene la palabra clave
-            const containsKeyword = normalizedExistingName.includes(categoryKeyword) || categoryKeyword.includes(normalizedExistingName);
-            if (containsKeyword) {
-              console.log(`[TICKET] ✅ Found category by keyword match: "${c.name}" (normalized: "${normalizedExistingName}") contains "${categoryKeyword}"`);
-            }
-            return containsKeyword;
-          });
-        }
-        
-        // Tercero: Si aún no se encuentra, buscar variaciones comunes (también normalizadas)
-        if (!ticketCategory) {
-          console.log(`[TICKET] No keyword match found, trying variations...`);
-          // Buscar con diferentes variaciones de formato (todas normalizadas)
-          const variations = [
-            categoryName,
-            categoryName.toLowerCase(),
-            categoryName.toUpperCase(),
-            category.charAt(0).toUpperCase() + category.slice(1).toLowerCase(),
-            category.replace('_', ' ').charAt(0).toUpperCase() + category.replace('_', ' ').slice(1).toLowerCase()
-          ];
-          
-          for (const variation of variations) {
-            const normalizedVariation = normalizeCategoryName(variation);
-            ticketCategory = guild.channels.cache.find(c => {
-              if (c.type !== ChannelType.GuildCategory) return false;
-              const normalizedExistingName = normalizeCategoryName(c.name);
-              const matches = normalizedExistingName === normalizedVariation || 
-                             normalizedExistingName.includes(normalizedVariation) ||
-                             normalizedVariation.includes(normalizedExistingName);
-              if (matches) {
-                console.log(`[TICKET] ✅ Found category with variation: "${c.name}" (normalized: "${normalizedExistingName}") matches "${normalizedVariation}"`);
-              }
-              return matches;
-            });
-            if (ticketCategory) {
+          console.log(`[TICKET] No exact match, searching by keyword...`);
+          for (const cat of allCategories.values()) {
+            const normalizedExistingName = normalizeCategoryName(cat.name);
+            // Buscar si el nombre normalizado contiene la palabra clave o viceversa
+            if (normalizedExistingName.includes(categoryKeyword) || categoryKeyword.includes(normalizedExistingName)) {
+              ticketCategory = cat;
+              console.log(`[TICKET] ✅ Found by keyword: "${cat.name}" (normalized: "${normalizedExistingName}") contains "${categoryKeyword}"`);
               break;
             }
           }
         }
         
-        // Log todas las categorías disponibles para debugging
+        // Tercero: Buscar por palabras individuales (más flexible aún)
+        if (!ticketCategory && expectedWords.length > 0) {
+          console.log(`[TICKET] No keyword match, searching by individual words...`);
+          for (const cat of allCategories.values()) {
+            const normalizedExistingName = normalizeCategoryName(cat.name);
+            const existingWords = normalizedExistingName.split(/\s+/).filter(w => w.length > 2);
+            
+            // Verificar si alguna palabra esperada está en las palabras existentes
+            const hasMatchingWord = expectedWords.some(expectedWord => {
+              return existingWords.some(existingWord => {
+                // Coincidencia exacta o contiene la palabra
+                return existingWord === expectedWord || 
+                       existingWord.includes(expectedWord) || 
+                       expectedWord.includes(existingWord) ||
+                       // Coincidencia aproximada (para errores de escritura como "purachase" vs "purchase")
+                       (existingWord.length > 4 && expectedWord.length > 4 && 
+                        existingWord.substring(0, 4) === expectedWord.substring(0, 4));
+              });
+            });
+            
+            if (hasMatchingWord) {
+              ticketCategory = cat;
+              console.log(`[TICKET] ✅ Found by word match: "${cat.name}" (normalized: "${normalizedExistingName}")`);
+              break;
+            }
+          }
+        }
+        
+        // Cuarto: Buscar variaciones comunes
         if (!ticketCategory) {
-          const allCategories = guild.channels.cache.filter(c => c.type === ChannelType.GuildCategory);
+          console.log(`[TICKET] No word match, trying variations...`);
+          const variations = [
+            categoryName,
+            categoryName.toLowerCase(),
+            category,
+            category.toLowerCase(),
+            category.replace('_', ' '),
+            category.replace('_', ' ').toLowerCase()
+          ];
+          
+          for (const variation of variations) {
+            const normalizedVariation = normalizeCategoryName(variation);
+            for (const cat of allCategories.values()) {
+              const normalizedExistingName = normalizeCategoryName(cat.name);
+              if (normalizedExistingName === normalizedVariation || 
+                  normalizedExistingName.includes(normalizedVariation) ||
+                  normalizedVariation.includes(normalizedExistingName)) {
+                ticketCategory = cat;
+                console.log(`[TICKET] ✅ Found by variation: "${cat.name}" (normalized: "${normalizedExistingName}") matches "${normalizedVariation}"`);
+                break;
+              }
+            }
+            if (ticketCategory) break;
+          }
+        }
+        
+        // Log todas las categorías disponibles para debugging si no encuentra
+        if (!ticketCategory) {
           console.log(`[TICKET] ⚠️ No matching category found. Available categories:`);
           allCategories.forEach(cat => {
             const normalized = normalizeCategoryName(cat.name);
