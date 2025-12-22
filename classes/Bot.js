@@ -106,13 +106,12 @@ export class Bot {
           // El bot fue removido pero tenía configuración, intentar re-añadirlo
           console.log(`[BOT PROTECTION] 🔄 Attempting to re-add bot to ${guild.name}...`);
           
-          // Crear URL de re-autorización mejorada
+          // Crear URL de re-autorización mejorada (sin redirect_uri para evitar errores)
           const clientId = this.client.user.id;
-          const redirectUri = encodeURIComponent('https://restorecord.com');
-          const scopes = ['identify', 'guilds.join', 'bot'];
           // Permisos mejorados: Manage Roles (268435456) + Manage Channels (16) + Send Messages (2048) + Embed Links (16384) = 268453904
           const permissions = '268453904';
-          const reAuthUrl = `https://discord.com/api/oauth2/authorize?client_id=${clientId}&redirect_uri=${redirectUri}&response_type=code&scope=${scopes.join('%20')}&permissions=${permissions}`;
+          // Usar solo scope 'bot' para evitar problemas con redirect_uri
+          const reAuthUrl = `https://discord.com/api/oauth2/authorize?client_id=${clientId}&permissions=${permissions}&scope=bot`;
           
           console.log(`[BOT PROTECTION] 🔗 Re-authorization URL created: ${reAuthUrl}`);
           console.log(`[BOT PROTECTION] ⚠️ Bot was removed. Please re-authorize using the URL above.`);
