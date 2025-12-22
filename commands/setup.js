@@ -65,6 +65,48 @@ export default {
             .setDescription('Rol de trial admin (solo sync-variants, opcional)')
             .setRequired(false)
         )
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName('edit')
+        .setDescription('Edit a specific configuration field')
+        .addStringOption((option) =>
+          option
+            .setName('field')
+            .setDescription('Field to edit')
+            .setRequired(true)
+            .addChoices(
+              { name: 'Member Role', value: 'member_role' },
+              { name: 'Verification Channel', value: 'verification_channel' },
+              { name: 'Viewer Role', value: 'viewer_role' },
+              { name: 'Bot Status Channel', value: 'bot_status_channel' },
+              { name: 'Automod Channel', value: 'automod_channel' },
+              { name: 'Backup Channel', value: 'backup_channel' },
+              { name: 'Weekly Reports Channel', value: 'weekly_reports_channel' },
+              { name: 'Accept Channel', value: 'accept_channel' },
+              { name: 'Staff Rating Support Channel', value: 'staff_rating_support_channel' },
+              { name: 'Staff Feedbacks Channel', value: 'staff_feedbacks_channel' },
+              { name: 'Vouches Channel', value: 'vouches_channel' },
+              { name: 'Customer Role', value: 'customer_role' },
+              { name: 'Log Channel', value: 'log_channel' },
+              { name: 'Transcript Channel', value: 'transcript_channel' },
+              { name: 'Rating Channel', value: 'rating_channel' },
+              { name: 'Spam Channel', value: 'spam_channel' },
+              { name: 'Trial Admin Role', value: 'trial_admin_role' }
+            )
+        )
+        .addRoleOption((option) =>
+          option
+            .setName('role')
+            .setDescription('Role to set (if editing a role field)')
+            .setRequired(false)
+        )
+        .addChannelOption((option) =>
+          option
+            .setName('channel')
+            .setDescription('Channel to set (if editing a channel field)')
+            .setRequired(false)
+        ),
     ),
 
   async execute(interaction, api) {
@@ -84,6 +126,8 @@ export default {
         await this.startInteractiveSetup(interaction);
       } else if (subcommand === 'quick') {
         await this.quickSetup(interaction);
+      } else if (subcommand === 'edit') {
+        await this.editConfig(interaction);
       }
 
     } catch (error) {
@@ -308,5 +352,109 @@ export default {
     console.log(`[SETUP] Bot configured in server: ${interaction.guild.name} (${guildId})`);
     console.log(`[SETUP] Admin Role: ${adminRole.name} (${adminRole.id})`);
     console.log(`[SETUP] Staff Role: ${staffRole.name} (${staffRole.id})`);
+  },
+
+  async editConfig(interaction) {
+    await interaction.deferReply({ ephemeral: true });
+
+    const guildId = interaction.guild.id;
+    const field = interaction.options.getString('field');
+    const role = interaction.options.getRole('role');
+    const channel = interaction.options.getChannel('channel');
+
+    // Verificar que existe configuración
+    const existingConfig = GuildConfig.getConfig(guildId);
+    if (!existingConfig) {
+      await interaction.editReply({
+        content: '❌ No hay configuración guardada. Usa `/setup start` o `/setup quick` primero.'
+      });
+      return;
+    }
+
+    // Mapear campos a keys de configuración
+    const fieldMap = {
+      'member_role': 'memberRoleId',
+      'verification_channel': 'verificationChannelId',
+      'viewer_role': 'viewerRoleId',
+      'bot_status_channel': 'botStatusChannelId',
+      'automod_channel': 'automodChannelId',
+      'backup_channel': 'backupChannelId',
+      'weekly_reports_channel': 'weeklyReportsChannelId',
+      'accept_channel': 'acceptChannelId',
+      'staff_rating_support_channel': 'staffRatingSupportChannelId',
+      'staff_feedbacks_channel': 'staffFeedbacksChannelId',
+      'vouches_channel': 'vouchesChannelId',
+      'customer_role': 'customerRoleId',
+      'log_channel': 'logChannelId',
+      'transcript_channel': 'transcriptChannelId',
+      'rating_channel': 'ratingChannelId',
+      'spam_channel': 'spamChannelId',
+      'trial_admin_role': 'trialAdminRoleId'
+    };
+
+    const configKey = fieldMap[field];
+    if (!configKey) {
+      await interaction.editReply({
+        content: '❌ Campo no válido.'
+      });
+      return;
+    }
+
+    // Verificar que se proporcionó el valor correcto
+    const isRoleField = field.includes('role');
+    if (isRoleField && !role) {
+      await interaction.editReply({
+        content: '❌ Debes proporcionar un rol para este campo.'
+      });
+      return;
+    }
+    if (!isRoleField && !channel) {
+      await interaction.editReply({
+        content: '❌ Debes proporcionar un canal para este campo.'
+      });
+      return;
+    }
+
+    // Actualizar configuración
+    const updates = {};
+    if (isRoleField) {
+      updates[configKey] = role.id;
+    } else {
+      updates[configKey] = channel.id;
+    }
+
+    const updatedConfig = GuildConfig.updateConfig(guildId, updates);
+
+    if (!updatedConfig) {
+      await interaction.editReply({
+        content: '❌ Error al actualizar la configuración.'
+      });
+      return;
+    }
+
+    // Crear embed de confirmación
+    const fieldName = field.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+    const embed = new EmbedBuilder()
+      .setColor(0x00ff00)
+      .setTitle('✅ Configuración Actualizada')
+      .setDescription(`El campo **${fieldName}** ha sido actualizado exitosamente.`)
+      .addFields({
+        name: 'Campo',
+        value: fieldName,
+        inline: true
+      })
+      .addFields({
+        name: 'Valor',
+        value: isRoleField ? `${role}` : `${channel}`,
+        inline: true
+      })
+      .setFooter({ text: `Updated by ${interaction.user.username}` })
+      .setTimestamp();
+
+    await interaction.editReply({
+      embeds: [embed]
+    });
+
+    console.log(`[SETUP] Updated ${fieldName} for guild: ${guildId} (${interaction.guild.name})`);
   }
 };
