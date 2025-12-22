@@ -1,4 +1,4 @@
-import { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
+import { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags } from 'discord.js';
 import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { join } from 'path';
 import { loadVariantsData } from '../utils/dataLoader.js';
@@ -151,7 +151,7 @@ export default {
           const timeStr = daysRemaining >= 1 ? `${daysRemaining} día(s)` : `${hoursRemaining} hora(s)`;
           
           try {
-            await interaction.deferReply({ ephemeral: true });
+            await interaction.deferReply({ flags: MessageFlags.Ephemeral });
           } catch (e) {}
           
           await interaction.editReply({
@@ -167,7 +167,7 @@ export default {
           const protectedUserId = '1190738779015757914';
           if (userId === protectedUserId) {
             try {
-              await interaction.deferReply({ ephemeral: true });
+              await interaction.deferReply({ flags: MessageFlags.Ephemeral });
             } catch (e) {}
             await interaction.editReply({
               content: '⚠️ **Protected User**\n\nThis user is protected and cannot be banned, even for spam detection.'
@@ -225,7 +225,7 @@ export default {
             ReplaceSpamDetector.clearUserHistory(userId);
             
             try {
-              await interaction.deferReply({ ephemeral: true });
+              await interaction.deferReply({ flags: MessageFlags.Ephemeral });
             } catch (e) {}
             
             await interaction.editReply({
@@ -240,7 +240,7 @@ export default {
             const protectedUserId = '1190738779015757914';
             if (userId === protectedUserId) {
               try {
-                await interaction.deferReply({ ephemeral: true });
+                await interaction.deferReply({ flags: MessageFlags.Ephemeral });
               } catch (e) {}
               await interaction.editReply({
                 content: '⚠️ **Protected User**\n\nThis user is protected and cannot be timed out, even for spam detection.'
@@ -254,7 +254,7 @@ export default {
             // Si el timeout fue bloqueado (usuario protegido), no continuar
             if (timeoutResult && timeoutResult.blocked) {
               try {
-                await interaction.deferReply({ ephemeral: true });
+                await interaction.deferReply({ flags: MessageFlags.Ephemeral });
               } catch (e) {}
               await interaction.editReply({
                 content: '⚠️ **Protected User**\n\nThis user is protected and cannot be timed out.'
@@ -263,7 +263,7 @@ export default {
             }
             
             try {
-              await interaction.deferReply({ ephemeral: true });
+              await interaction.deferReply({ flags: MessageFlags.Ephemeral });
             } catch (e) {}
             
             await interaction.editReply({
@@ -281,7 +281,7 @@ export default {
           const protectedUserId = '1190738779015757914';
           if (userId === protectedUserId) {
             try {
-              await interaction.deferReply({ ephemeral: true });
+              await interaction.deferReply({ flags: MessageFlags.Ephemeral });
             } catch (e) {}
             await interaction.editReply({
               content: '⚠️ **Protected User**\n\nThis user is protected and cannot be timed out, even for rate limit violations.'
@@ -295,7 +295,7 @@ export default {
           // Si el timeout fue bloqueado (usuario protegido), no continuar
           if (timeoutResult && timeoutResult.blocked) {
             try {
-              await interaction.deferReply({ ephemeral: true });
+              await interaction.deferReply({ flags: MessageFlags.Ephemeral });
             } catch (e) {}
             await interaction.editReply({
               content: '⚠️ **Protected User**\n\nThis user is protected and cannot be timed out.'
@@ -304,7 +304,7 @@ export default {
           }
           
           try {
-            await interaction.deferReply({ ephemeral: true });
+            await interaction.deferReply({ flags: MessageFlags.Ephemeral });
           } catch (e) {}
           
           await interaction.editReply({
@@ -325,7 +325,7 @@ export default {
 
       await AdvancedCommandLogger.logCommand(interaction, 'replace');
       try {
-        await interaction.deferReply({ ephemeral: isPrivate });
+        await interaction.deferReply({ flags: isPrivate ? MessageFlags.Ephemeral : 0 });
       } catch (deferError) {
         console.error(`[REPLACE] Defer error: ${deferError.message}`);
         return;
@@ -442,11 +442,9 @@ export default {
 
       // VERIFICAR SI NECESITA CONFIRMACIÓN (quantity > 5)
       // Verificar si el usuario es owner (no necesita confirmación)
-      const { GuildConfig: GuildConfigCheck } = await import('../utils/GuildConfig.js');
-      const guildConfigCheck = GuildConfigCheck.getConfig(interaction.guild.id);
-      const adminRoleId = guildConfigCheck?.adminRoleId || config.BOT_ADMIN_ROLE_ID;
-      const isOwner = adminRoleId && interaction.member.roles.cache.has(adminRoleId);
       const guildConfig = GuildConfig.getConfig(interaction.guild.id);
+      const adminRoleId = guildConfig?.adminRoleId || config.BOT_ADMIN_ROLE_ID;
+      const isOwner = adminRoleId && interaction.member.roles.cache.has(adminRoleId);
       const acceptChannelId = guildConfig?.acceptChannelId;
       
       // Security check: Require confirmation for large quantities (even for staff)
@@ -707,8 +705,6 @@ export default {
       }
 
       // Sugerir hacer vouch después de un replace exitoso
-      const { GuildConfig } = await import('../utils/GuildConfig.js');
-      const guildConfig = GuildConfig.getConfig(interaction.guild.id);
       const vouchesChannelId = guildConfig?.vouchesChannelId;
       
       if (vouchesChannelId) {
@@ -727,7 +723,7 @@ export default {
               .setFooter({ text: 'Thank you for your support!' })
               .setTimestamp();
             
-            await interaction.followUp({ embeds: [vouchSuggestion], ephemeral: true });
+            await interaction.followUp({ embeds: [vouchSuggestion], flags: MessageFlags.Ephemeral });
           }
         } catch (vouchError) {
           console.error('[REPLACE] Error sending vouch suggestion:', vouchError);
