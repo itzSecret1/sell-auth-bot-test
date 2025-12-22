@@ -21,30 +21,59 @@ function loadGuildConfigs() {
   }
 }
 
-// Guardar configuraciones de servidores (sincrónico y robusto)
+// Guardar configuraciones de servidores (sincrónico y robusto con múltiples intentos)
 function saveGuildConfigs() {
-  try {
-    const data = JSON.stringify(guildConfigs, null, 2);
-    writeFileSync(GUILD_CONFIG_FILE, data, 'utf-8');
-    
-    // Verificar que se guardó correctamente
-    if (existsSync(GUILD_CONFIG_FILE)) {
-      const savedData = readFileSync(GUILD_CONFIG_FILE, 'utf-8');
-      if (savedData === data) {
-        console.log(`[GUILD CONFIG] ✅ Configuration saved successfully (${Object.keys(guildConfigs).length} server(s))`);
-        return true;
-      } else {
-        console.error('[GUILD CONFIG] ⚠️ Warning: Saved data does not match expected data');
-        return false;
+  const maxRetries = 3;
+  let lastError = null;
+  
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      const data = JSON.stringify(guildConfigs, null, 2);
+      
+      // Intentar escribir el archivo
+      writeFileSync(GUILD_CONFIG_FILE, data, 'utf-8');
+      
+      // Esperar un momento para que el sistema de archivos se actualice
+      if (attempt < maxRetries) {
+        // Pequeño delay solo si no es el último intento
+        const start = Date.now();
+        while (Date.now() - start < 50) {} // 50ms delay
       }
-    } else {
-      console.error('[GUILD CONFIG] ❌ Error: Config file was not created');
-      return false;
+      
+      // Verificar que se guardó correctamente
+      if (existsSync(GUILD_CONFIG_FILE)) {
+        const savedData = readFileSync(GUILD_CONFIG_FILE, 'utf-8');
+        if (savedData === data) {
+          console.log(`[GUILD CONFIG] ✅ Configuration saved successfully (${Object.keys(guildConfigs).length} server(s)) on attempt ${attempt}`);
+          return true;
+        } else {
+          lastError = new Error('Saved data does not match expected data');
+          if (attempt < maxRetries) {
+            console.warn(`[GUILD CONFIG] ⚠️ Attempt ${attempt} failed: Data mismatch. Retrying...`);
+            continue;
+          }
+        }
+      } else {
+        lastError = new Error('Config file was not created');
+        if (attempt < maxRetries) {
+          console.warn(`[GUILD CONFIG] ⚠️ Attempt ${attempt} failed: File not created. Retrying...`);
+          continue;
+        }
+      }
+    } catch (error) {
+      lastError = error;
+      if (attempt < maxRetries) {
+        console.warn(`[GUILD CONFIG] ⚠️ Attempt ${attempt} failed: ${error.message}. Retrying...`);
+        // Esperar antes de reintentar
+        const start = Date.now();
+        while (Date.now() - start < 100) {} // 100ms delay
+      }
     }
-  } catch (error) {
-    console.error('[GUILD CONFIG] ❌ Error saving:', error);
-    return false;
   }
+  
+  // Si todos los intentos fallaron
+  console.error(`[GUILD CONFIG] ❌ Error saving after ${maxRetries} attempts:`, lastError?.message || 'Unknown error');
+  return false;
 }
 
 // Inicializar
@@ -62,6 +91,9 @@ export class GuildConfig {
    * Configurar un servidor (crear o actualizar)
    */
   static setConfig(guildId, config) {
+    // Recargar antes de guardar para evitar sobrescribir cambios concurrentes
+    loadGuildConfigs();
+    
     const isNew = !guildConfigs[guildId];
     
     if (!guildConfigs[guildId]) {
@@ -72,15 +104,32 @@ export class GuildConfig {
     guildConfigs[guildId] = {
       ...guildConfigs[guildId],
       ...config,
+      guildId: guildId, // Asegurar que el guildId esté presente
       configuredAt: guildConfigs[guildId].configuredAt || new Date().toISOString(),
       lastUpdated: new Date().toISOString()
     };
     
-    const saved = saveGuildConfigs();
+    // Intentar guardar múltiples veces si es necesario
+    let saved = saveGuildConfigs();
+    if (!saved) {
+      // Si falla, intentar una vez más después de un breve delay
+      console.warn(`[GUILD CONFIG] ⚠️ First save attempt failed, retrying...`);
+      const start = Date.now();
+      while (Date.now() - start < 200) {} // 200ms delay
+      saved = saveGuildConfigs();
+    }
+    
     if (saved) {
       console.log(`[GUILD CONFIG] ${isNew ? '✅ Created' : '🔄 Updated'} configuration for guild: ${guildId} (${config.guildName || 'Unknown'})`);
+      // Verificar inmediatamente que se guardó correctamente
+      loadGuildConfigs();
+      if (guildConfigs[guildId] && guildConfigs[guildId].adminRoleId === config.adminRoleId) {
+        console.log(`[GUILD CONFIG] ✅ Verified: Configuration persisted correctly`);
+      } else {
+        console.error(`[GUILD CONFIG] ⚠️ Warning: Configuration may not have persisted correctly`);
+      }
     } else {
-      console.error(`[GUILD CONFIG] ❌ Failed to save configuration for guild: ${guildId}`);
+      console.error(`[GUILD CONFIG] ❌ Failed to save configuration for guild: ${guildId} after multiple attempts`);
     }
     
     return guildConfigs[guildId];
@@ -177,7 +226,30 @@ export class GuildConfig {
    * Obtener todos los servidores configurados
    */
   static getAllConfigs() {
+    // Recargar antes de devolver para asegurar datos actualizados
+    loadGuildConfigs();
     return guildConfigs;
+  }
+
+  /**
+   * Recargar configuraciones desde el archivo (útil después de cambios externos)
+   */
+  static reload() {
+    loadGuildConfigs();
+    console.log(`[GUILD CONFIG] 🔄 Reloaded ${Object.keys(guildConfigs).length} server configuration(s)`);
+    return guildConfigs;
+  }
+
+  /**
+   * Verificar y reparar configuración (marca como no configurado si falta adminRoleId)
+   */
+  static verifyAndRepair(guildId) {
+    loadGuildConfigs();
+    if (guildConfigs[guildId] && !guildConfigs[guildId].adminRoleId) {
+      console.warn(`[GUILD CONFIG] ⚠️ Configuration for guild ${guildId} is incomplete (missing adminRoleId)`);
+      return false;
+    }
+    return !!guildConfigs[guildId];
   }
 }
 
