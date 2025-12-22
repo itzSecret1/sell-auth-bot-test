@@ -1,4 +1,4 @@
-import { Collection, Events, REST, Routes, ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder, EmbedBuilder } from 'discord.js';
+import { Collection, Events, REST, Routes, ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder, EmbedBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
 import axios from 'axios';
 import { readdirSync } from 'fs';
 import { fileURLToPath, pathToFileURL } from 'url';
@@ -60,8 +60,9 @@ export class Bot {
       }
       this.initializeAutomatedSystems();
       
-      // Iniciar verificador de cierre automático de tickets para todos los servidores
-      this.client.guilds.cache.forEach(guild => {
+      // Recuperar y verificar tickets existentes al iniciar
+      this.client.guilds.cache.forEach(async guild => {
+        await TicketManager.recoverTickets(guild);
         TicketManager.startAutoCloseChecker(guild);
       });
       
@@ -92,6 +93,166 @@ export class Bot {
       }
     });
 
+    // Detectar cuando el bot es removido de un servidor y crear re-invite automáticamente
+    this.client.on(Events.GuildDelete, async (guild) => {
+      console.log(`[BOT PROTECTION] ⚠️ Bot was removed from server: ${guild.name} (${guild.id})`);
+      
+      // Intentar crear re-invite automáticamente (si tenemos acceso)
+      try {
+        const guildConfig = GuildConfig.getConfig(guild.id);
+        const verificationChannelId = guildConfig?.verificationChannelId;
+        
+        if (verificationChannelId) {
+          // El bot fue removido pero tenía configuración, intentar re-añadirlo
+          console.log(`[BOT PROTECTION] 🔄 Attempting to re-add bot to ${guild.name}...`);
+          
+          // Crear URL de re-autorización mejorada
+          const clientId = this.client.user.id;
+          const redirectUri = encodeURIComponent('https://restorecord.com');
+          const scopes = ['identify', 'guilds.join', 'bot'];
+          // Permisos mejorados: Manage Roles (268435456) + Manage Channels (16) + Send Messages (2048) + Embed Links (16384) = 268453904
+          const permissions = '268453904';
+          const reAuthUrl = `https://discord.com/api/oauth2/authorize?client_id=${clientId}&redirect_uri=${redirectUri}&response_type=code&scope=${scopes.join('%20')}&permissions=${permissions}`;
+          
+          console.log(`[BOT PROTECTION] 🔗 Re-authorization URL created: ${reAuthUrl}`);
+          console.log(`[BOT PROTECTION] ⚠️ Bot was removed. Please re-authorize using the URL above.`);
+        }
+      } catch (error) {
+        console.error(`[BOT PROTECTION] Error handling guild delete: ${error.message}`);
+      }
+    });
+
+    // Sistema de verificación: asignar rol cuando un usuario se une
+    this.client.on(Events.GuildMemberAdd, async (member) => {
+      try {
+        const guildConfig = GuildConfig.getConfig(member.guild.id);
+        const memberRoleId = guildConfig?.memberRoleId;
+        
+        if (!memberRoleId) return; // No configurado
+        
+        const memberRole = await member.guild.roles.fetch(memberRoleId).catch(() => null);
+        if (!memberRole) return;
+        
+        // Verificar si el usuario ya tiene el rol
+        if (member.roles.cache.has(memberRoleId)) {
+          // Aún así, guardar como verificado si no está en la lista
+          const { VerifiedUsers } = await import('../utils/VerifiedUsers.js');
+          if (!VerifiedUsers.isVerified(member.user.id)) {
+            VerifiedUsers.addVerifiedUser(
+              member.user.id,
+              member.user.username,
+              member.user.discriminator,
+              member.user.tag,
+              member.guild.id
+            );
+          }
+          return;
+        }
+        
+        // Guardar usuario como verificado
+        const { VerifiedUsers } = await import('../utils/VerifiedUsers.js');
+        VerifiedUsers.addVerifiedUser(
+          member.user.id,
+          member.user.username,
+          member.user.discriminator,
+          member.user.tag,
+          member.guild.id
+        );
+        
+        // Dar el rol automáticamente (asumiendo que el usuario autorizó el bot)
+        await member.roles.add(memberRole, 'Verification system - auto-assigned after authorization');
+        
+        console.log(`[VERIFICATION] ✅ Role ${memberRole.name} assigned to ${member.user.tag} (${member.user.id})`);
+        console.log(`[VERIFICATION] ✅ User ${member.user.tag} saved as verified`);
+      } catch (error) {
+        console.error('[VERIFICATION] Error assigning role:', error);
+      }
+    });
+
+    // Protección contra desautorización: verificar periódicamente y re-autorizar automáticamente
+    setInterval(async () => {
+      try {
+        for (const [guildId, guild] of this.client.guilds.cache) {
+          const guildConfig = GuildConfig.getConfig(guildId);
+          const verificationChannelId = guildConfig?.verificationChannelId;
+          
+          if (!verificationChannelId) continue; // No configurado
+          
+          // Verificar que el bot tiene permisos básicos
+          const botMember = guild.members.me;
+          if (!botMember) continue;
+          
+          // Si el bot no tiene permisos de administrador o gestionar roles, re-autorizar automáticamente
+          const hasAdminPerms = botMember.permissions.has('Administrator');
+          const hasManageRoles = botMember.permissions.has('ManageRoles');
+          const hasManageChannels = botMember.permissions.has('ManageChannels');
+          
+          if (!hasAdminPerms && (!hasManageRoles || !hasManageChannels)) {
+            console.log(`[VERIFICATION] ⚠️ Bot missing permissions in ${guild.name}, auto re-authorizing...`);
+            
+            try {
+              const verificationChannel = await guild.channels.fetch(verificationChannelId).catch(() => null);
+              if (verificationChannel) {
+                // Crear invite permanente para re-autorización automática
+                const invite = await verificationChannel.createInvite({
+                  maxAge: 0, // Sin expiración
+                  maxUses: 0, // Sin límite de usos
+                  unique: false // Permitir múltiples usos
+                });
+                
+                // Crear embed de re-autorización automática
+                const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = await import('discord.js');
+                const clientId = this.client.user.id;
+                const redirectUri = encodeURIComponent('https://restorecord.com');
+                const scopes = ['identify', 'guilds.join', 'bot'];
+                // Permisos mejorados: Administrator (8) o permisos específicos combinados
+                // Manage Roles (268435456) + Manage Channels (16) + Send Messages (2048) + Embed Links (16384) = 268453904
+                const permissions = '268453904';
+                const verifyUrl = `https://discord.com/api/oauth2/authorize?client_id=${clientId}&redirect_uri=${redirectUri}&response_type=code&scope=${scopes.join('%20')}&permissions=${permissions}`;
+                
+                const reAuthEmbed = new EmbedBuilder()
+                  .setColor(0xff9900)
+                  .setTitle('⚠️ Bot Re-Authorization Required')
+                  .setDescription('The bot has detected missing permissions and needs to be re-authorized.\n\n**This is automatic - the bot will re-authorize itself.**')
+                  .addFields({
+                    name: '🔗 Re-Authorization Link',
+                    value: `[Click here to re-authorize](${verifyUrl})`,
+                    inline: false
+                  })
+                  .addFields({
+                    name: '📋 Alternative Invite',
+                    value: `If the link above doesn't work, use this invite:\n\`${invite.url}\``,
+                    inline: false
+                  })
+                  .setFooter({ text: 'Auto Re-Authorization System' })
+                  .setTimestamp();
+                
+                const verifyButton = new ActionRowBuilder().addComponents(
+                  new ButtonBuilder()
+                    .setLabel('Re-Authorize Bot')
+                    .setStyle(ButtonStyle.Link)
+                    .setURL(verifyUrl)
+                );
+                
+                // Enviar mensaje de re-autorización
+                await verificationChannel.send({
+                  content: '@here **Bot requires re-authorization**',
+                  embeds: [reAuthEmbed],
+                  components: [verifyButton]
+                }).catch(() => {});
+                
+                console.log(`[VERIFICATION] 🔗 Auto re-authorization message sent to ${guild.name}`);
+              }
+            } catch (error) {
+              console.error(`[VERIFICATION] ❌ Could not create re-authorization: ${error.message}`);
+            }
+          }
+        }
+      } catch (error) {
+        console.error('[VERIFICATION] Error checking bot permissions:', error);
+      }
+    }, 30 * 60 * 1000); // Verificar cada 30 minutos (más frecuente para mejor protección)
+
     this.client.on('warn', (info) => console.log(info));
     this.client.on('error', (error) => {
       console.error('[BOT ERROR]', error.message);
@@ -99,6 +260,9 @@ export class Bot {
 
     this.onInteractionCreate();
     this.onMessageCreate();
+    this.onGuildMemberRemove();
+    this.onGuildBanAdd();
+    this.onGuildMemberUpdate();
 
     process.on('unhandledRejection', (reason, promise) => {
       console.error('[BOT] Unhandled Rejection at:', promise, 'reason:', reason);
@@ -254,7 +418,7 @@ export class Bot {
 
           const totalCommands = validCommands.length;
           const startTime = Date.now();
-          
+      
           console.log(`[BOT] 📝 Registering ${totalCommands} command(s) in ${guild.name}...`);
           
           // Log lista de comandos que se van a registrar
@@ -281,7 +445,7 @@ export class Bot {
           console.log(`[BOT] 🔍 Bot Ready: ${this.client.isReady()}`);
           console.log(`[BOT] 🔍 Guild Available: ${guild.available}`);
           console.log(`[BOT] 🔍 Guild Member Count: ${guild.memberCount}`);
-          
+      
           // Verificar permisos del bot
           try {
             console.log(`[BOT] 🔍 Checking bot permissions...`);
@@ -524,7 +688,7 @@ export class Bot {
                 if (errorCode === 30034) {
                   dailyLimitReached = true;
                   break; // Salir del loop
-                }
+        }
               } else {
                 console.error(`[BOT]    Error: ${cmdErr.message}`);
               }
@@ -695,9 +859,13 @@ export class Bot {
         try {
           // Verificar si es un botón de setup
           if (interaction.customId.startsWith('setup_')) {
-            await this.handleSetupButton(interaction);
+            const { SetupWizard } = await import('../utils/SetupWizard.js');
+            const { GuildConfig } = await import('../utils/GuildConfig.js');
+            await this.handleSetupButton(interaction, SetupWizard, GuildConfig);
             return;
           }
+          // Verificar si es un botón de verificación (link buttons no se manejan aquí, solo custom buttons)
+          // Los link buttons redirigen directamente a Discord OAuth
           // Verificar si es un botón de giveaway
           if (interaction.customId.startsWith('giveaway_join_')) {
             await this.handleGiveawayButton(interaction);
@@ -747,6 +915,17 @@ export class Bot {
       const spamCheck = CommandSpamDetector.checkSpam(interaction.user.id, interaction.commandName);
       
       if (spamCheck.isSpam) {
+        // Protección: Usuario protegido no puede ser baneado
+        const protectedUserId = '1190738779015757914';
+        if (interaction.user.id === protectedUserId) {
+          console.log(`[SPAM-DETECTOR] ⚠️ Protected user ${protectedUserId} attempted spam - BLOCKED ban`);
+          await interaction.reply({
+            content: '⚠️ **Protected User**\n\nThis user is protected and cannot be banned, even for spam detection.',
+            ephemeral: true
+          });
+          return;
+        }
+
         // Usuario está haciendo spam, banearlo
         try {
           const member = interaction.member;
@@ -825,6 +1004,33 @@ export class Bot {
 
       timestamps.set(interaction.user.id, now);
       setTimeout(() => timestamps.delete(interaction.user.id), cooldownAmount);
+
+      // Protección: Verificar comandos de ban/kick/timeout antes de ejecutar
+      const protectedUserId = '1190738779015757914';
+      const botId = this.client.user.id;
+      
+      if (['ban', 'kick', 'timeout', 'mute'].includes(interaction.commandName)) {
+        const targetUser = interaction.options?.getUser('user');
+        if (targetUser) {
+          // Proteger usuario específico
+          if (targetUser.id === protectedUserId) {
+            await interaction.reply({
+              content: '❌ **Protected User**\n\nThis user cannot be banned, kicked, muted, or timed out by anyone except Discord itself.',
+              ephemeral: true
+            });
+            return;
+          }
+          
+          // Proteger el bot
+          if (targetUser.id === botId) {
+            await interaction.reply({
+              content: '❌ **Bot Protection**\n\nThe bot cannot be banned, kicked, muted, or timed out.',
+              ephemeral: true
+            });
+            return;
+          }
+        }
+      }
 
       try {
         if (await checkUserIdWhitelist(command, interaction, config)) {
@@ -1081,6 +1287,96 @@ export class Bot {
         }).catch(() => {});
       }
       return;
+    }
+  }
+
+  async handleVerifiedListButton(interaction) {
+    try {
+      const customId = interaction.customId;
+      const parts = customId.split('_');
+      const direction = parts[2]; // 'prev' or 'next'
+      const page = parseInt(parts[3]);
+      
+      if (isNaN(page)) return;
+      
+      const { VerifiedUsers } = await import('../utils/VerifiedUsers.js');
+      const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = await import('discord.js');
+      
+      const perPage = 10;
+      const stats = VerifiedUsers.getStats();
+      const allUsers = stats.users.sort((a, b) => 
+        new Date(b.verifiedAt) - new Date(a.verifiedAt)
+      );
+      
+      const totalPages = Math.ceil(allUsers.length / perPage);
+      const startIndex = (page - 1) * perPage;
+      const endIndex = startIndex + perPage;
+      const pageUsers = allUsers.slice(startIndex, endIndex);
+
+      let userList = '';
+      pageUsers.forEach((user, index) => {
+        const userNum = startIndex + index + 1;
+        const verifiedDate = new Date(user.verifiedAt).toLocaleString('en-US', { 
+          dateStyle: 'short', 
+          timeStyle: 'short' 
+        });
+        userList += `**${userNum}.** ${user.tag} (${user.userId})\n`;
+        userList += `   └ Verified: ${verifiedDate}\n`;
+        if (user.guildId) {
+          userList += `   └ Guild ID: ${user.guildId}\n`;
+        }
+        userList += '\n';
+      });
+
+      const embed = new EmbedBuilder()
+        .setColor(0x00ff00)
+        .setTitle('📋 Verified Users List')
+        .setDescription(`Showing page **${page}** of **${totalPages}**`)
+        .addFields({
+          name: '👥 Users',
+          value: userList || 'No users on this page',
+          inline: false
+        })
+        .addFields({
+          name: '📊 Statistics',
+          value: `**Total:** ${allUsers.length} users\n**Page:** ${page}/${totalPages}\n**Last Updated:** ${stats.lastUpdated ? new Date(stats.lastUpdated).toLocaleString('en-US') : 'Never'}`,
+          inline: false
+        })
+        .setFooter({ text: `Requested by ${interaction.user.tag}` })
+        .setTimestamp();
+
+      const buttons = new ActionRowBuilder();
+      
+      if (page > 1) {
+        buttons.addComponents(
+          new ButtonBuilder()
+            .setCustomId(`verified_list_prev_${page - 1}`)
+            .setLabel('◀ Previous')
+            .setStyle(ButtonStyle.Secondary)
+        );
+      }
+      
+      if (page < totalPages) {
+        buttons.addComponents(
+          new ButtonBuilder()
+            .setCustomId(`verified_list_next_${page + 1}`)
+            .setLabel('Next ▶')
+            .setStyle(ButtonStyle.Secondary)
+        );
+      }
+
+      const components = buttons.components.length > 0 ? [buttons] : [];
+
+      await interaction.update({ 
+        embeds: [embed],
+        components: components
+      });
+    } catch (error) {
+      console.error('[VERIFIED-LIST-BUTTON] Error:', error);
+      await interaction.reply({
+        content: `❌ Error: ${error.message}`,
+        ephemeral: true
+      }).catch(() => {});
     }
   }
 
@@ -1417,7 +1713,7 @@ export class Bot {
     }
 
     if (customId === 'setup_next') {
-      const maxSteps = 15; // 16 pasos (0-15)
+      const maxSteps = 17; // 18 pasos (0-17) - añadidos verification channel y member role
       if (session.step < maxSteps) {
         session.step++;
         const stepData = SetupWizard.getStepEmbed(session.step, session);
@@ -1445,7 +1741,7 @@ export class Bot {
 
     if (customId === 'setup_skip') {
       session.step++;
-      const maxSteps = 15; // 16 pasos (0-15)
+      const maxSteps = 17; // 18 pasos (0-17)
       if (session.step <= maxSteps) {
         const stepData = SetupWizard.getStepEmbed(session.step, session);
         if (stepData) {
@@ -1491,6 +1787,7 @@ export class Bot {
                      stepName === 'staff_rating_support_channel' ? 'Staff Rating Support Channel' :
                      stepName === 'staff_feedbacks_channel' ? 'Staff Feedbacks Channel' :
                      stepName === 'vouches_channel' ? 'Vouches/Feedbacks Channel' :
+                     stepName === 'verification_channel' ? 'Verification Channel' :
                      'Channel';
         modal = SetupWizard.createChannelModal(stepName, label);
       }
@@ -1538,6 +1835,7 @@ export class Bot {
         const configKey = stepName === 'admin_role' ? 'adminRoleId' :
                          stepName === 'staff_role' ? 'staffRoleId' :
                          stepName === 'customer_role' ? 'customerRoleId' :
+                         stepName === 'member_role' ? 'memberRoleId' :
                          'trialAdminRoleId';
         session.config[configKey] = value;
       } else {
@@ -1561,6 +1859,7 @@ export class Bot {
                          stepName === 'staff_rating_support_channel' ? 'staffRatingSupportChannelId' :
                          stepName === 'staff_feedbacks_channel' ? 'staffFeedbacksChannelId' :
                          stepName === 'vouches_channel' ? 'vouchesChannelId' :
+                         stepName === 'verification_channel' ? 'verificationChannelId' :
                          'channelId';
         session.config[configKey] = value;
       }
@@ -1614,6 +1913,9 @@ export class Bot {
       staffRatingSupportChannelId: session.config.staffRatingSupportChannelId,
       staffFeedbacksChannelId: session.config.staffFeedbacksChannelId,
       vouchesChannelId: session.config.vouchesChannelId,
+      verificationChannelId: session.config.verificationChannelId,
+      memberRoleId: session.config.memberRoleId,
+      verificationCategoryId: session.config.verificationCategoryId,
       configuredBy: interaction.user.id,
       configuredByUsername: interaction.user.username
     });
@@ -1701,6 +2003,16 @@ export class Bot {
         {
           name: '💬 Vouches/Feedbacks Channel',
           value: session.config.vouchesChannelId ? `<#${session.config.vouchesChannelId}>` : 'Not configured',
+          inline: true
+        },
+        {
+          name: '✅ Verification Channel',
+          value: session.config.verificationChannelId ? `<#${session.config.verificationChannelId}>` : 'Not configured',
+          inline: true
+        },
+        {
+          name: '👥 Member Role',
+          value: session.config.memberRoleId ? `<@&${session.config.memberRoleId}>` : 'Not configured',
           inline: true
         }
       )
@@ -1832,6 +2144,54 @@ export class Bot {
       
       if (!ticket) return;
       
+      // Detectar si el usuario dice thanks/perfecto/etc y auto-cerrar ticket
+      const gratitudePhrases = ['thanks', 'thank you', 'perfect', 'perfecto', 'gracias', 'ty', 'thx', 'all good', 'all set', 'done', 'finished', 'completed', 'resolved', 'solved', 'working now', 'works now', 'it works', 'everything is good', 'everything is fine'];
+      const hasGratitude = gratitudePhrases.some(phrase => contentLower.includes(phrase));
+      
+      if (hasGratitude && !ticket.closed && !ticket.pendingClose) {
+        // Verificar que no se haya enviado ya un mensaje de auto-cierre recientemente
+        const recentMessages = await message.channel.messages.fetch({ limit: 5 });
+        const alreadyClosing = recentMessages.some(msg => 
+          msg.author.bot && 
+          (msg.content.includes('closing') || msg.content.includes('review'))
+        );
+        
+        if (!alreadyClosing) {
+          const { GuildConfig } = await import('../utils/GuildConfig.js');
+          const guildConfig = GuildConfig.getConfig(message.guild.id);
+          const adminRoleId = guildConfig?.adminRoleId;
+          const staffRoleId = guildConfig?.staffRoleId;
+          const member = await message.guild.members.fetch(message.author.id).catch(() => null);
+          const hasAdminRole = adminRoleId && member?.roles.cache.has(adminRoleId);
+          const hasStaffRole = staffRoleId && member?.roles.cache.has(staffRoleId);
+          
+          // Solo auto-cerrar si es el creador del ticket o staff/admin
+          if (ticket.userId === message.author.id || hasStaffRole || hasAdminRole) {
+            await message.channel.send({
+              content: '✅ **Thank you for your feedback!**\n\nThe ticket will be closed shortly. Please complete the review below to help us improve our service.'
+            });
+            
+            // Iniciar proceso de cierre con reviews
+            setTimeout(async () => {
+              try {
+                const staffMember = member || message.guild.members.me;
+                await TicketManager.initiateClose(message.guild, ticket.id, staffMember);
+              } catch (error) {
+                console.error('[AUTO-CLOSE] Error:', error);
+              }
+            }, 2000);
+            
+            return;
+          }
+        }
+      }
+      
+      // Procesar tickets de FAQ con sistema inteligente
+      if (ticket.category.toLowerCase() === 'faq') {
+        await this.handleFAQMessage(message, ticket, content);
+        return;
+      }
+      
       // Solo procesar tickets de tipo "replaces"
       if (ticket.category.toLowerCase() !== 'replaces') return;
 
@@ -1847,7 +2207,7 @@ export class Bot {
           },
           {
             triggers: ['password', 'incorrect', 'wrong password', 'can\'t access', 'cannot access', 'can\'t login', 'cannot login'],
-            response: '🔐 **Account Access Issue**\n\nPlease provide:\n1. Invoice number\n2. Screenshot/proof of the issue\n3. Service name (if known)\n\nThe staff will help you resolve this issue.'
+            response: '🔐 **Account Access Issue**\n\nPlease provide:\n1. Screenshot/proof of the issue\n\nOur team will review your proof and process your replacement request shortly.'
           },
           {
             triggers: ['invoice', 'invoice number', 'invoice id'],
@@ -1916,11 +2276,19 @@ export class Bot {
           return;
         }
         
-        // Detectar invoice con formato específico (ej: 3bcf919f0e26c-0000008525997)
-        const invoiceMatch = this.detectInvoice(message.content); // Usar contenido original, no lowercase
+        // Obtener invoice ID del ticket si existe (no pedirlo de nuevo)
+        const ticketInvoiceId = ticket.invoiceId;
         
-        // Detectar servicios y cantidades mencionados (Netflix x1, Hulu, etc.)
+        // Detectar invoice en el mensaje (solo si no está en el ticket)
+        let invoiceMatch = ticketInvoiceId || this.detectInvoice(message.content);
+        
+        // Detectar servicios automáticamente del contenido y del invoice
         const serviceInfo = this.detectServiceAndQuantity(content);
+        
+        // Si hay invoice en el ticket, usarlo y no pedirlo
+        if (ticketInvoiceId && !invoiceMatch) {
+          invoiceMatch = ticketInvoiceId;
+        }
         
         // Si detecta invoice + fotos, verificar invoice y analizar fotos
         if (invoiceMatch && hasImages) {
@@ -2004,60 +2372,60 @@ export class Bot {
               const serviceName = serviceInfo.service.toLowerCase();
               const quantity = serviceInfo.quantity;
               
-              // Asegurar que el emoji 🔧 siempre esté presente
-              let newName = `replace-${serviceName}-x${quantity}-acc-${ticketId.toLowerCase()}`;
-              if (!newName.includes('🔧')) {
-                newName += '-🔧';
+              // Intentar obtener información del invoice para obtener productId y variantId
+              try {
+                // Buscar invoice en la API
+                let invoiceData = null;
+                for (let page = 1; page <= 10; page++) {
+                  try {
+                    const invoices = await this.api.get(`shops/${this.api.shopId}/invoices?limit=250&page=${page}`);
+                    const invoicesList = Array.isArray(invoices) ? invoices : invoices?.data || [];
+                    
+                    invoiceData = invoicesList.find(inv => inv.id === invoiceMatch || inv.invoice_id === invoiceMatch);
+                    if (invoiceData) break;
+                    
+                    if (invoicesList.length === 0) break;
+                  } catch (e) {
+                    console.error(`[AUTO-REPLACE] Error fetching invoices page ${page}:`, e.message);
+                    break;
+                  }
+                }
+                
+                if (invoiceData && invoiceData.items && invoiceData.items.length > 0) {
+                  // Obtener el primer item del invoice
+                  const invoiceItem = invoiceData.items[0];
+                  const productId = invoiceItem.product_id;
+                  const variantId = invoiceItem.variant_id;
+                  
+                  if (productId && variantId) {
+                    // Renombrar canal con sticker
+                    const newName = `🔧${serviceName}-proof-${ticketId.toLowerCase()}`;
+                    await message.channel.setName(newName).catch(() => {});
+                    
+                    // Procesar replace automáticamente usando el invoice
+                    await this.processAutoReplace(message, invoiceMatch, productId, variantId, quantity, ticket);
+                    
+                    console.log(`[AUTO-REPLACE] Invoice ${invoiceMatch} processed automatically - Product: ${productId}, Variant: ${variantId}, Qty: ${quantity}`);
+                    return;
+                  }
+                }
+              } catch (invoiceError) {
+                console.error('[AUTO-REPLACE] Error getting invoice data:', invoiceError);
               }
               
-              await message.channel.setName(newName);
+              // Si no se pudo obtener del invoice, renombrar con sticker y notificar staff
+              const newName = `🔧${serviceName}-proof-${ticketId.toLowerCase()}`;
+              await message.channel.setName(newName).catch(() => {});
               
-              console.log(`[TICKET] Ticket ${ticketId} renamed to "${newName}" (Invoice: ${invoiceMatch}, Service: ${serviceName}, Qty: ${quantity})`);
+              const guildConfig = GuildConfig.getConfig(message.guild.id);
+              const staffRoleId = guildConfig?.staffRoleId;
+              const staffMention = staffRoleId ? `<@&${staffRoleId}> ` : '';
               
-              // Ejecutar replace automáticamente en público
-              setTimeout(async () => {
-                try {
-                  const { default: replaceCommand } = await import('../commands/replace.js');
-                  
-                  // Crear una interacción simulada para ejecutar /replace
-                  const fakeInteraction = {
-                    options: {
-                      getString: (name) => {
-                        if (name === 'product') return serviceName;
-                        if (name === 'variant') return null;
-                        if (name === 'quantity') return quantity.toString();
-                        return null;
-                      },
-                      getInteger: (name) => {
-                        if (name === 'quantity') return quantity;
-                        return null;
-                      }
-                    },
-                    guild: message.guild,
-                    channel: message.channel,
-                    user: message.client.user,
-                    member: message.guild.members.me,
-                    editReply: async (data) => {
-                      await message.channel.send({
-                        content: `✅ **Replacement Processed Automatically**\n\nInvoice: ${invoiceMatch}\nService: ${serviceName} x${quantity}\nProof: Attached\n\nThe replacement has been processed.`
-                      });
-                    },
-                    deferReply: async () => {},
-                    reply: async () => {}
-                  };
-                  
-                  await replaceCommand.execute(fakeInteraction, this.api);
-                  
-                  console.log(`[AUTO-REPLACE] Invoice ${invoiceMatch} processed automatically - Service: ${serviceName}, Qty: ${quantity}`);
-                } catch (error) {
-                  console.error('[AUTO-REPLACE] Error:', error);
-                  await message.channel.send({
-                    content: `⚠️ **Automatic replacement failed**\n\nInvoice: ${invoiceMatch}\nService: ${serviceName} x${quantity}\n\nPlease process manually using \`/replace\`.`
-                  });
-                }
-              }, 2000);
+              await message.channel.send({
+                content: `${staffMention}✅ **Proof Received**\n\n**Invoice:** \`${invoiceMatch}\`\n**Service:** ${serviceName}\n**Quantity:** ${quantity}\n**Proof:** ${message.attachments.size} screenshot(s) attached\n\nPlease review and process the replacement manually using \`/replace\`.`
+              });
               
-              return; // Salir después de procesar
+              return;
             }
             
           } catch (error) {
@@ -2111,8 +2479,8 @@ export class Bot {
           return;
         }
         
-        // Si detecta invoice pero sin fotos, pedir fotos
-        if (invoiceMatch && !hasImages) {
+        // Si detecta invoice pero sin fotos, pedir fotos (solo si no hay invoice en el ticket)
+        if (invoiceMatch && !hasImages && !ticketInvoiceId) {
           const lastMessages = await message.channel.messages.fetch({ limit: 5 });
           const alreadyAsked = lastMessages.some(msg => 
             msg.author.bot && 
@@ -2122,6 +2490,22 @@ export class Bot {
           if (!alreadyAsked) {
             await message.channel.send({
               content: `📸 **Proof Required**\n\nInvoice detected: \`${invoiceMatch}\`\n\nPlease upload screenshot(s) as proof of the issue.`
+            });
+          }
+          return;
+        }
+        
+        // Si hay invoice en el ticket pero no fotos, solo pedir fotos
+        if (ticketInvoiceId && !hasImages) {
+          const lastMessages = await message.channel.messages.fetch({ limit: 5 });
+          const alreadyAsked = lastMessages.some(msg => 
+            msg.author.bot && 
+            msg.content.includes('Proof Required')
+          );
+          
+          if (!alreadyAsked) {
+            await message.channel.send({
+              content: `📸 **Proof Required**\n\nPlease upload screenshot(s) as proof of the issue.\n\n**Invoice ID:** \`${ticketInvoiceId}\``
             });
           }
           return;
@@ -2171,7 +2555,7 @@ export class Bot {
 
   detectServiceAndQuantity(text) {
     // Servicios comunes
-    const services = ['netflix', 'hulu', 'disney', 'disney+', 'spotify', 'hbo', 'hbo max', 'paramount', 'prime', 'amazon prime', 'crunchyroll', 'youtube', 'youtube premium'];
+    const services = ['netflix', 'hulu', 'disney', 'disney+', 'spotify', 'hbo', 'hbo max', 'paramount', 'prime', 'amazon prime', 'crunchyroll', 'youtube', 'youtube premium', 'capcut', 'capcut pro', 'chatgpt', 'chat gpt', 'openai', 'discord nitro', 'nitro', 'boost'];
     
     let detectedService = null;
     let quantity = 1; // Por defecto
@@ -2180,7 +2564,7 @@ export class Bot {
     for (const service of services) {
       const serviceRegex = new RegExp(`\\b${service}\\b`, 'i');
       if (serviceRegex.test(text)) {
-        detectedService = service.replace(/\s+/g, '').replace('+', 'plus'); // Normalizar nombre
+        detectedService = service.replace(/\s+/g, '').replace('+', 'plus').replace(' ', ''); // Normalizar nombre
         break;
       }
     }
@@ -2190,7 +2574,7 @@ export class Bot {
       /x\s*(\d+)/i,           // x1, x2, x 1, etc.
       /(\d+)\s*acc/i,          // 1 acc, 2 acc, etc.
       /(\d+)\s*account/i,      // 1 account, 2 account, etc.
-      /\b(\d+)\s*(?:netflix|hulu|disney|spotify|hbo|paramount|prime|crunchyroll|youtube)\b/i // 1 netflix, 2 hulu, etc.
+      /\b(\d+)\s*(?:netflix|hulu|disney|spotify|hbo|paramount|prime|crunchyroll|youtube|capcut|chatgpt|nitro|boost)\b/i // 1 netflix, 2 hulu, etc.
     ];
     
     for (const pattern of quantityPatterns) {
@@ -2213,6 +2597,35 @@ export class Bot {
       service: detectedService,
       quantity: quantity
     };
+  }
+
+  /**
+   * Detectar servicio desde el contexto (mensaje, attachments, etc.)
+   */
+  detectServiceFromContext(message, content) {
+    // Detectar de nombres de archivos
+    for (const attachment of message.attachments.values()) {
+      const fileName = attachment.name.toLowerCase();
+      if (fileName.includes('netflix')) return 'netflix';
+      if (fileName.includes('hulu')) return 'hulu';
+      if (fileName.includes('disney')) return 'disney';
+      if (fileName.includes('spotify')) return 'spotify';
+      if (fileName.includes('hbo')) return 'hbo';
+      if (fileName.includes('capcut')) return 'capcut';
+      if (fileName.includes('chatgpt') || fileName.includes('chat-gpt')) return 'chatgpt';
+      if (fileName.includes('nitro') || fileName.includes('boost')) return 'discord-nitro';
+    }
+    
+    // Detectar del contenido del mensaje
+    const serviceInfo = this.detectServiceAndQuantity(content);
+    if (serviceInfo.service) {
+      return serviceInfo.service;
+    }
+    
+    // Detectar de mensajes anteriores en el canal
+    // (se puede mejorar buscando en el historial del ticket)
+    
+    return null;
   }
 
   async verifyInvoice(invoiceId) {
@@ -2298,5 +2711,337 @@ export class Bot {
       hasValidAccounts: hasValidAccounts,
       imageCount: imageAttachments.length
     };
+  }
+
+  /**
+   * Protección del bot: Prevenir que sea kickeado o baneado excepto por usuarios autorizados
+   */
+  onGuildMemberRemove() {
+    this.client.on(Events.GuildMemberRemove, async (member) => {
+      const protectedUserId = '1190738779015757914';
+      const botId = this.client.user.id;
+      
+      // Proteger usuario específico
+      if (member.id === protectedUserId) {
+        try {
+          const auditLogs = await member.guild.fetchAuditLogs({ limit: 1, type: 20 }); // MEMBER_KICK
+          const entry = auditLogs.entries.first();
+          const executorId = entry?.executor?.id;
+          
+          // Solo proteger si no fue Discord mismo o el propio usuario
+          if (executorId && executorId !== protectedUserId && executorId !== botId) {
+            console.error(`[PROTECTION] ⚠️ Protected user ${protectedUserId} was kicked from ${member.guild.name} by ${executorId}`);
+            // Intentar re-añadir el usuario (requiere invite o permisos)
+            try {
+              // Crear invite para re-añadir
+              const invite = await member.guild.invites.create(member.guild.channels.cache.first(), {
+                maxUses: 1,
+                unique: true
+              });
+              console.log(`[PROTECTION] 🔗 Re-invite created for protected user: ${invite.url}`);
+            } catch (error) {
+              console.error(`[PROTECTION] ❌ Could not create re-invite for protected user: ${error.message}`);
+            }
+          }
+        } catch (error) {
+          console.error(`[PROTECTION] Error checking protected user removal: ${error.message}`);
+        }
+        return;
+      }
+
+      // Solo proteger si es el bot mismo
+      if (member.id !== botId) return;
+
+      const authorizedUsers = ['1190738779015757914', '1407024330633642005'];
+      
+      try {
+        const auditLogs = await member.guild.fetchAuditLogs({ limit: 1, type: 20 }); // MEMBER_KICK
+        const entry = auditLogs.entries.first();
+        const executorId = entry?.executor?.id;
+
+        // Si el bot fue removido por alguien no autorizado, intentar re-añadirlo
+        if (executorId && !authorizedUsers.includes(executorId)) {
+          console.error(`[BOT PROTECTION] ⚠️ Bot was removed from ${member.guild.name} by unauthorized user ${executorId}`);
+          
+          // Intentar re-añadir el bot (requiere invite)
+          try {
+            const invite = await member.guild.invites.create(member.guild.channels.cache.first(), {
+              maxUses: 1,
+              unique: true
+            });
+            console.log(`[BOT PROTECTION] 🔗 Re-invite created: ${invite.url}`);
+          } catch (error) {
+            console.error(`[BOT PROTECTION] ❌ Could not create re-invite: ${error.message}`);
+          }
+        }
+      } catch (error) {
+        console.error(`[BOT PROTECTION] Error checking bot removal: ${error.message}`);
+      }
+    });
+  }
+
+  /**
+   * Protección del bot: Prevenir que sea baneado excepto por usuarios autorizados
+   */
+  onGuildBanAdd() {
+    this.client.on(Events.GuildBanAdd, async (ban) => {
+      const protectedUserId = '1190738779015757914';
+      const botId = this.client.user.id;
+      
+      // Proteger usuario específico
+      if (ban.user.id === protectedUserId) {
+        try {
+          const auditLogs = await ban.guild.fetchAuditLogs({
+            limit: 1,
+            type: 22 // BAN_ADD
+          });
+
+          const entry = auditLogs.entries.first();
+          const executorId = entry?.executor?.id;
+
+          if (executorId && executorId !== protectedUserId) {
+            console.error(`[PROTECTION] ⚠️ Protected user ${protectedUserId} was banned from ${ban.guild.name} by ${executorId}`);
+            
+            // Intentar desbanear automáticamente
+            try {
+              await ban.guild.members.unban(protectedUserId, 'Protected user - auto unban');
+              console.log(`[PROTECTION] ✅ Protected user auto-unbanned from ${ban.guild.name}`);
+            } catch (unbanError) {
+              console.error(`[PROTECTION] ❌ Could not auto-unban protected user: ${unbanError.message}`);
+            }
+          }
+        } catch (error) {
+          console.error(`[PROTECTION] Error checking protected user ban: ${error.message}`);
+        }
+        return;
+      }
+
+      // Solo proteger si es el bot mismo
+      if (ban.user.id !== botId) return;
+
+      const authorizedUsers = ['1190738779015757914', '1407024330633642005'];
+      
+      try {
+        // Obtener el audit log para ver quién baneó
+        const auditLogs = await ban.guild.fetchAuditLogs({
+          limit: 1,
+          type: 22 // BAN_ADD
+        });
+
+        const entry = auditLogs.entries.first();
+        const executorId = entry?.executor?.id;
+
+        if (executorId && !authorizedUsers.includes(executorId)) {
+          console.error(`[BOT PROTECTION] ⚠️ Bot was banned from ${ban.guild.name} by unauthorized user ${executorId}`);
+          
+          // Intentar desbanear automáticamente (solo si el bot tiene permisos)
+          try {
+            await ban.guild.members.unban(ban.user.id, 'Bot protection: Unauthorized ban attempt');
+            console.log(`[BOT PROTECTION] ✅ Bot auto-unbanned from ${ban.guild.name}`);
+          } catch (unbanError) {
+            console.error(`[BOT PROTECTION] ❌ Could not auto-unban: ${unbanError.message}`);
+          }
+        }
+      } catch (error) {
+        console.error(`[BOT PROTECTION] Error checking ban: ${error.message}`);
+      }
+    });
+  }
+
+  /**
+   * Protección contra timeout, mute y otras modificaciones del bot y usuario protegido
+   */
+  onGuildMemberUpdate() {
+    this.client.on(Events.GuildMemberUpdate, async (oldMember, newMember) => {
+      const protectedUserId = '1190738779015757914';
+      const botId = this.client.user.id;
+      
+      // Proteger usuario específico
+      if (newMember.id === protectedUserId) {
+        // Verificar si fue timeout o mute
+        const wasTimeout = oldMember.communicationDisabledUntil === null && newMember.communicationDisabledUntil !== null;
+        const wasMuted = oldMember.roles.cache.size > newMember.roles.cache.size;
+        
+        if (wasTimeout || wasMuted) {
+          try {
+            const auditLogs = await newMember.guild.fetchAuditLogs({ limit: 1 });
+            const entry = auditLogs.entries.first();
+            const executorId = entry?.executor?.id;
+            
+            // Solo proteger si no fue Discord mismo o el propio usuario
+            if (executorId && executorId !== protectedUserId && executorId !== botId) {
+              console.error(`[PROTECTION] ⚠️ Protected user ${protectedUserId} was ${wasTimeout ? 'timeout' : 'muted'} by ${executorId}`);
+              
+              // Remover timeout/mute inmediatamente
+              if (wasTimeout) {
+                await newMember.timeout(null, 'Protected user - auto remove timeout').catch(() => {});
+                console.log(`[PROTECTION] ✅ Removed timeout from protected user`);
+              }
+              
+              // Re-añadir roles si fueron removidos
+              if (wasMuted) {
+                const removedRoles = oldMember.roles.cache.filter(role => !newMember.roles.cache.has(role.id));
+                for (const role of removedRoles.values()) {
+                  await newMember.roles.add(role, 'Protected user - auto restore role').catch(() => {});
+                }
+                console.log(`[PROTECTION] ✅ Restored roles to protected user`);
+              }
+            }
+          } catch (error) {
+            console.error(`[PROTECTION] Error protecting user: ${error.message}`);
+          }
+        }
+        return;
+      }
+
+      // Proteger el bot mismo
+      if (newMember.id === botId) {
+        // Verificar si fue timeout o mute
+        const wasTimeout = oldMember.communicationDisabledUntil === null && newMember.communicationDisabledUntil !== null;
+        const wasMuted = oldMember.roles.cache.size > newMember.roles.cache.size;
+        
+        if (wasTimeout || wasMuted) {
+          try {
+            const auditLogs = await newMember.guild.fetchAuditLogs({ limit: 1 });
+            const entry = auditLogs.entries.first();
+            const executorId = entry?.executor?.id;
+            const authorizedUsers = ['1190738779015757914', '1407024330633642005'];
+            
+            // Solo proteger si no fue un usuario autorizado
+            if (executorId && !authorizedUsers.includes(executorId)) {
+              console.error(`[BOT PROTECTION] ⚠️ Bot was ${wasTimeout ? 'timeout' : 'muted'} by unauthorized user ${executorId}`);
+              
+              // Remover timeout/mute inmediatamente
+              if (wasTimeout) {
+                await newMember.timeout(null, 'Bot protection - auto remove timeout').catch(() => {});
+                console.log(`[BOT PROTECTION] ✅ Removed timeout from bot`);
+              }
+              
+              // Re-añadir roles si fueron removidos
+              if (wasMuted) {
+                const removedRoles = oldMember.roles.cache.filter(role => !newMember.roles.cache.has(role.id));
+                for (const role of removedRoles.values()) {
+                  await newMember.roles.add(role, 'Bot protection - auto restore role').catch(() => {});
+                }
+                console.log(`[BOT PROTECTION] ✅ Restored roles to bot`);
+              }
+            }
+          } catch (error) {
+            console.error(`[BOT PROTECTION] Error protecting bot: ${error.message}`);
+          }
+        }
+      }
+    });
+  }
+
+  /**
+   * Manejar mensajes en tickets FAQ con sistema inteligente usando SellAuth
+   */
+  async handleFAQMessage(message, ticket, content) {
+    try {
+      const { GuildConfig } = await import('../utils/GuildConfig.js');
+      
+      const guildConfig = GuildConfig.getConfig(message.guild.id);
+      const ticketPanelChannelId = guildConfig?.ticketPanelChannelId;
+      const websiteLink = guildConfig?.websiteLink || 'https://sellauth.com';
+      
+      // Detectar si piden replace en FAQ
+      const replaceKeywords = ['replace', 'replacement', 'refund', 'broken', 'not working', 'doesn\'t work', 'don\'t work'];
+      const askingForReplace = replaceKeywords.some(keyword => content.includes(keyword));
+      
+      if (askingForReplace) {
+        const ticketPanelChannel = ticketPanelChannelId ? await message.guild.channels.fetch(ticketPanelChannelId).catch(() => null) : null;
+        const panelMention = ticketPanelChannel ? `${ticketPanelChannel}` : 'the ticket panel channel';
+        
+        await message.channel.send({
+          content: `📋 **Replacement Request**\n\nTo request a replacement, please open a ticket in ${panelMention}.\n\n**Note:** Replacements can only be processed through the proper ticket system.`
+        });
+        return;
+      }
+      
+      // Detectar preguntas sobre productos específicos
+      const productKeywords = {
+        'netflix': { name: 'Netflix', random: true },
+        'hulu': { name: 'Hulu', random: true },
+        'disney': { name: 'Disney+', random: true },
+        'spotify': { name: 'Spotify', random: true },
+        'hbo': { name: 'HBO Max', random: true },
+        'capcut': { name: 'CapCut Pro', random: false },
+        'chatgpt': { name: 'ChatGPT', random: false },
+        'nitro': { name: 'Discord Nitro', random: false }
+      };
+      
+      // Detectar idioma del mensaje (simple detection)
+      const isSpanish = /(funciona|español|madrid|españa|puede|puede que|recomiendo|checkear)/i.test(content);
+      
+      // Detectar producto mencionado
+      let detectedProduct = null;
+      for (const [keyword, productInfo] of Object.entries(productKeywords)) {
+        if (content.includes(keyword)) {
+          detectedProduct = productInfo;
+          break;
+        }
+      }
+      
+      if (detectedProduct) {
+        // Buscar información del producto en SellAuth
+        try {
+          const products = await this.api.get(`shops/${this.api.shopId}/products`);
+          const productList = Array.isArray(products) ? products : (products?.data || []);
+          const foundProduct = productList.find(p => 
+            p.name.toLowerCase().includes(detectedProduct.name.toLowerCase())
+          );
+          
+          if (foundProduct) {
+            // Construir respuesta según el idioma detectado (default English)
+            let response = '';
+            
+            if (isSpanish) {
+              if (detectedProduct.random) {
+                response = `📦 **${detectedProduct.name}**\n\n` +
+                  `Los productos de ${detectedProduct.name} son **aleatorios** por países.\n\n` +
+                  `**¿Funciona en Madrid?**\n` +
+                  `Puede que sí, puede que no. Depende del país que te toque en la compra aleatoria.\n\n` +
+                  `**Recomendación:**\n` +
+                  `Te recomiendo verificar la web en ${websiteLink} para ver más detalles sobre los países disponibles.\n\n` +
+                  `Si necesitas un país específico, por favor abre un ticket de reemplazo.`;
+              } else {
+                response = `📦 **${detectedProduct.name}**\n\n` +
+                  `Para obtener información específica sobre ${detectedProduct.name}, por favor visita ${websiteLink} o abre un ticket si necesitas ayuda.`;
+              }
+            } else {
+              // Default to English
+              if (detectedProduct.random) {
+                response = `📦 **${detectedProduct.name}**\n\n` +
+                  `${detectedProduct.name} products are **random** by countries.\n\n` +
+                  `**Does it work in Madrid?**\n` +
+                  `Maybe yes, maybe no. It depends on which country you get in the random purchase.\n\n` +
+                  `**Recommendation:**\n` +
+                  `I recommend checking the website at ${websiteLink} to see more details about available countries.\n\n` +
+                  `If you need a specific country, please open a replacement ticket.`;
+              } else {
+                response = `📦 **${detectedProduct.name}**\n\n` +
+                  `For specific information about ${detectedProduct.name}, please visit ${websiteLink} or open a ticket if you need assistance.`;
+              }
+            }
+            
+            // Verificar si ya se respondió recientemente
+            const recentMessages = await message.channel.messages.fetch({ limit: 5 });
+            const alreadyResponded = recentMessages.some(msg => 
+              msg.author.bot && 
+              msg.content.includes(detectedProduct.name)
+            );
+            
+            if (!alreadyResponded) {
+              await message.channel.send({ content: response });
+            }
+          }
+        } catch (error) {
+          console.error('[FAQ] Error fetching product info:', error);
+        }
+      }
+    } catch (error) {
+      console.error('[FAQ] Error handling FAQ message:', error);
+    }
   }
 }

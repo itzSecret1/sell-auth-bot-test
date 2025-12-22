@@ -208,6 +208,7 @@ export class TicketManager {
       // Guardar datos del ticket
       ticketsData.tickets[ticketId] = {
         id: ticketId,
+        guildId: guild.id, // IMPORTANTE: Guardar guildId para persistencia
         userId: user.id,
         channelId: ticketChannel.id,
         category: categoryName,
@@ -221,7 +222,9 @@ export class TicketManager {
         closeReason: null,
         serviceRating: null,
         staffRating: null,
-        ratingTimeout: null
+        ratingTimeout: null,
+        pendingClose: false,
+        ratingStartedAt: null
       };
       ticketsData.nextId++;
       saveTickets();
@@ -679,7 +682,7 @@ export class TicketManager {
               },
               {
                 name: '👨‍💼 Claimed By',
-                value: claimedBy ? `${claimedBy}` : 'N/A',
+                value: claimedBy ? `${claimedBy} (${claimedBy.user.tag})` : 'Nobody claimed this ticket',
                 inline: true
               }
             )
@@ -708,7 +711,7 @@ export class TicketManager {
               },
               {
                 name: '👨‍💼 Staff Member',
-                value: staffMember ? `${staffMember} (${staffMember.user.tag})` : 'N/A',
+                value: staffMember ? `${staffMember} (${staffMember.user.tag})` : 'Nobody claimed this ticket',
                 inline: true
               },
               {
@@ -757,7 +760,7 @@ export class TicketManager {
               },
               {
                 name: '👨‍💼 Staff Member',
-                value: staffMember ? `${staffMember} (${staffMember.user.tag})` : 'N/A',
+                value: staffMember ? `${staffMember} (${staffMember.user.tag})` : 'Nobody claimed this ticket',
                 inline: true
               },
               {
@@ -831,7 +834,7 @@ export class TicketManager {
   }
 
   /**
-   * Enviar transcript del ticket
+   * Enviar transcript del ticket (mejorado con formato embellecido)
    */
   static async sendTranscript(guild, ticket) {
     try {
@@ -852,17 +855,31 @@ export class TicketManager {
       const channel = await guild.channels.fetch(ticket.channelId);
       if (!channel) return;
 
-      const messages = await channel.messages.fetch({ limit: 100 });
-      const sortedMessages = messages.sort((a, b) => a.createdTimestamp - b.createdTimestamp);
+      // Obtener todos los mensajes (hasta 1000)
+      let allMessages = [];
+      let lastMessageId = null;
+      let hasMore = true;
+      
+      while (hasMore && allMessages.length < 1000) {
+        const options = { limit: 100 };
+        if (lastMessageId) options.before = lastMessageId;
+        
+        const batch = await channel.messages.fetch(options);
+        if (batch.size === 0) {
+          hasMore = false;
+        } else {
+          allMessages = allMessages.concat(Array.from(batch.values()));
+          lastMessageId = batch.last().id;
+          if (batch.size < 100) hasMore = false;
+        }
+      }
+      
+      const sortedMessages = allMessages.sort((a, b) => a.createdTimestamp - b.createdTimestamp);
 
       const user = await guild.members.fetch(ticket.userId).catch(() => null);
       const claimedBy = ticket.claimedBy ? await guild.members.fetch(ticket.claimedBy).catch(() => null) : null;
       const closedBy = ticket.closedBy ? await guild.members.fetch(ticket.closedBy).catch(() => null) : null;
 
-      // Obtener información del canal
-      const channelName = channel.name;
-      const channelId = channel.id;
-      
       // Obtener participantes únicos del ticket
       const participants = new Set();
       participants.add(ticket.userId);
@@ -881,60 +898,245 @@ export class TicketManager {
         return member ? `<@${id}> (${member.user.tag})` : `User ID: ${id}`;
       }).join('\n');
 
-      let transcript = `# Transcript - ${ticket.id}\n\n`;
-      transcript += `**Ticket Owner:** ${user ? `<@${ticket.userId}> (${user.user.tag})` : `User ID: ${ticket.userId}`}\n`;
-      transcript += `**Channel Name:** ${channelName}\n`;
-      transcript += `**Channel ID:** ${channelId}\n`;
-      transcript += `**Category:** ${ticket.category}\n`;
-      transcript += `**Created:** ${new Date(ticket.createdAt).toLocaleString('en-US', { dateStyle: 'short', timeStyle: 'medium' })}\n`;
-      transcript += `**Closed:** ${ticket.closedAt ? new Date(ticket.closedAt).toLocaleString('en-US', { dateStyle: 'short', timeStyle: 'medium' }) : 'N/A'}\n`;
-      
+      // Crear embed embellecido
+      const transcriptEmbed = new EmbedBuilder()
+        .setColor(0x5865F2)
+        .setTitle(`📄 Transcript - ${ticket.id}`)
+        .setDescription(`Complete transcript of ticket ${ticket.id}`)
+        .addFields(
+          {
+            name: '👤 Ticket Owner',
+            value: user ? `<@${ticket.userId}> (${user.user.tag})` : `User ID: ${ticket.userId}`,
+            inline: true
+          },
+          {
+            name: '📝 Channel Name',
+            value: channel.name,
+            inline: true
+          },
+          {
+            name: '📂 Category',
+            value: ticket.category.charAt(0).toUpperCase() + ticket.category.slice(1),
+            inline: true
+          },
+          {
+            name: '📅 Created',
+            value: `<t:${Math.floor(new Date(ticket.createdAt).getTime() / 1000)}:F>`,
+            inline: true
+          },
+          {
+            name: '🔒 Closed',
+            value: ticket.closedAt ? `<t:${Math.floor(new Date(ticket.closedAt).getTime() / 1000)}:F>` : 'N/A',
+            inline: true
+          },
+          {
+            name: '📊 Messages',
+            value: `${sortedMessages.length} messages`,
+            inline: true
+          }
+        )
+        .setTimestamp();
+
+      // Agregar información de claimed by
       if (claimedBy) {
-        transcript += `**Claimed by:** <@${ticket.claimedBy}> (${claimedBy.user.tag})\n`;
+        transcriptEmbed.addFields({
+          name: '✅ Claimed by',
+          value: `<@${ticket.claimedBy}> (${claimedBy.user.tag})`,
+          inline: true
+        });
+      } else {
+        transcriptEmbed.addFields({
+          name: '✅ Claimed by',
+          value: 'Nobody claimed this ticket',
+          inline: true
+        });
       }
       
+      // Agregar información de closed by
       if (closedBy) {
         const closedByType = ticket.closedByType || 'staff';
         const typeLabel = closedByType === 'owner' ? 'Owner/Admin' : closedByType === 'user' ? 'Ticket Creator' : 'Staff';
-        transcript += `**Closed by:** <@${ticket.closedBy}> (${closedBy.user.tag}) - ${typeLabel}\n`;
+        transcriptEmbed.addFields({
+          name: '🔒 Closed by',
+          value: `<@${ticket.closedBy}> (${closedBy.user.tag}) - ${typeLabel}`,
+          inline: true
+        });
       }
       
+      // Agregar razón de cierre
       if (ticket.closeReason) {
-        transcript += `**Close Reason:** ${ticket.closeReason}\n`;
-      } else {
-        transcript += `**Close Reason:** No reason provided\n`;
+        transcriptEmbed.addFields({
+          name: '📝 Close Reason',
+          value: ticket.closeReason,
+          inline: false
+        });
       }
       
-      transcript += `**Service Rating:** ${ticket.serviceRating || 'N/A'}/5\n`;
-      transcript += `**Staff Rating:** ${ticket.staffRating || 'N/A'}/5\n`;
-      transcript += `\n**Participants in this ticket:**\n${participantsList}\n`;
-      transcript += `\n--- Messages ---\n\n`;
+      // Agregar ratings
+      transcriptEmbed.addFields(
+        {
+          name: '⭐ Service Rating',
+          value: ticket.serviceRating ? `${ticket.serviceRating}/5` : 'N/A/5',
+          inline: true
+        },
+        {
+          name: '👤 Staff Rating',
+          value: ticket.staffRating ? `${ticket.staffRating}/5` : 'N/A/5',
+          inline: true
+        }
+      );
+
+      // Agregar participantes
+      transcriptEmbed.addFields({
+        name: '👥 Participants',
+        value: participantsList || 'None',
+        inline: false
+      });
+
+      // Generar transcript en texto para archivo HTML
+      let transcriptText = `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Transcript - ${ticket.id}</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            margin: 0;
+            padding: 20px;
+            color: #333;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 10px;
+            padding: 30px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+        }
+        h1 {
+            color: #667eea;
+            border-bottom: 3px solid #667eea;
+            padding-bottom: 10px;
+        }
+        .info {
+            background: #f5f5f5;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 20px 0;
+        }
+        .info-item {
+            margin: 10px 0;
+        }
+        .info-label {
+            font-weight: bold;
+            color: #667eea;
+        }
+        .messages {
+            margin-top: 30px;
+        }
+        .message {
+            padding: 15px;
+            margin: 10px 0;
+            border-left: 4px solid #667eea;
+            background: #f9f9f9;
+            border-radius: 5px;
+        }
+        .message-header {
+            font-weight: bold;
+            color: #667eea;
+            margin-bottom: 5px;
+        }
+        .message-time {
+            color: #999;
+            font-size: 0.9em;
+        }
+        .message-content {
+            margin-top: 5px;
+        }
+        .embed {
+            background: #e8e8e8;
+            padding: 10px;
+            border-radius: 5px;
+            margin-top: 5px;
+            font-style: italic;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📄 Transcript - ${ticket.id}</h1>
+        
+        <div class="info">
+            <div class="info-item"><span class="info-label">Ticket Owner:</span> ${user ? `${user.user.tag} (${user.user.id})` : `User ID: ${ticket.userId}`}</div>
+            <div class="info-item"><span class="info-label">Channel Name:</span> ${channel.name}</div>
+            <div class="info-item"><span class="info-label">Channel ID:</span> ${channel.id}</div>
+            <div class="info-item"><span class="info-label">Category:</span> ${ticket.category}</div>
+            <div class="info-item"><span class="info-label">Created:</span> ${new Date(ticket.createdAt).toLocaleString('en-US', { dateStyle: 'full', timeStyle: 'long' })}</div>
+            <div class="info-item"><span class="info-label">Closed:</span> ${ticket.closedAt ? new Date(ticket.closedAt).toLocaleString('en-US', { dateStyle: 'full', timeStyle: 'long' }) : 'N/A'}</div>
+            ${claimedBy ? `<div class="info-item"><span class="info-label">Claimed by:</span> ${claimedBy.user.tag} (${claimedBy.user.id})</div>` : '<div class="info-item"><span class="info-label">Claimed by:</span> Nobody claimed this ticket</div>'}
+            ${closedBy ? `<div class="info-item"><span class="info-label">Closed by:</span> ${closedBy.user.tag} (${closedBy.user.id}) - ${ticket.closedByType === 'owner' ? 'Owner/Admin' : ticket.closedByType === 'user' ? 'Ticket Creator' : 'Staff'}</div>` : ''}
+            ${ticket.closeReason ? `<div class="info-item"><span class="info-label">Close Reason:</span> ${ticket.closeReason}</div>` : ''}
+            <div class="info-item"><span class="info-label">Service Rating:</span> ${ticket.serviceRating || 'N/A'}/5</div>
+            <div class="info-item"><span class="info-label">Staff Rating:</span> ${ticket.staffRating || 'N/A'}/5</div>
+            <div class="info-item"><span class="info-label">Participants:</span> ${participantsList.replace(/<@(\d+)>/g, 'User ID: $1')}</div>
+        </div>
+        
+        <div class="messages">
+            <h2>--- Messages ---</h2>
+`;
 
       for (const msg of sortedMessages.values()) {
         const date = new Date(msg.createdTimestamp).toLocaleString('en-US', { dateStyle: 'short', timeStyle: 'medium' });
-        transcript += `[${date}] ${msg.author.tag}: ${msg.content}\n`;
-        if (msg.embeds.length > 0) {
-          transcript += `  [Embed: ${msg.embeds[0].title || 'No title'}]\n`;
-        }
+        const content = msg.content || '(No text content)';
+        transcriptText += `
+            <div class="message">
+                <div class="message-header">${msg.author.tag}</div>
+                <div class="message-time">${date}</div>
+                <div class="message-content">${content.replace(/\n/g, '<br>')}</div>
+                ${msg.embeds.length > 0 ? `<div class="embed">[Embed: ${msg.embeds[0].title || 'No title'}]</div>` : ''}
+                ${msg.attachments.size > 0 ? `<div class="embed">[${msg.attachments.size} Attachment(s)]</div>` : ''}
+            </div>
+`;
       }
 
-      // Enviar como archivo si es muy largo
-      if (transcript.length > 2000) {
-        const { writeFileSync, unlinkSync } = await import('fs');
-        const filename = `transcript-${ticket.id}.txt`;
-        writeFileSync(filename, transcript, 'utf-8');
-        
-        await transcriptChannel.send({
-          content: `📄 Transcript de ${ticket.id}`,
-          files: [filename]
-        });
+      transcriptText += `
+        </div>
+    </div>
+</body>
+</html>`;
 
-        unlinkSync(filename);
-      } else {
-        await transcriptChannel.send({
-          content: `\`\`\`\n${transcript}\n\`\`\``
-        });
-      }
+      // Guardar archivo HTML
+      const { writeFileSync, unlinkSync } = await import('fs');
+      const filename = `transcript-${ticket.id}.html`;
+      writeFileSync(filename, transcriptText, 'utf-8');
+
+      // Crear botones para acciones
+      const buttons = new ActionRowBuilder()
+        .addComponents(
+          new ButtonBuilder()
+            .setCustomId(`transcript_direct_${ticket.id}`)
+            .setLabel('Direct Link')
+            .setStyle(ButtonStyle.Primary)
+            .setEmoji('📎')
+        );
+
+      // Enviar embed y archivo
+      await transcriptChannel.send({
+        embeds: [transcriptEmbed],
+        files: [{
+          attachment: filename,
+          name: `transcript-${ticket.id}.html`
+        }],
+        components: [buttons]
+      });
+
+      // Eliminar archivo temporal
+      unlinkSync(filename);
+
+      console.log(`[TICKET] ✅ Transcript sent for ${ticket.id}`);
     } catch (error) {
       console.error('[TICKET] Error sending transcript:', error);
     }
@@ -1018,8 +1220,18 @@ export class TicketManager {
         const hoursSinceRatingStart = (now - ratingStartTime) / (1000 * 60 * 60);
 
         if (hoursSinceRatingStart >= 24) {
-          // Han pasado 24 horas sin completar las reviews, cerrar automáticamente
-          console.log(`[TICKET] Auto-cerrando ticket ${ticketId} después de 24 horas sin completar reviews`);
+          // Han pasado 24 horas sin completar las reviews, asignar 5 estrellas y cerrar automáticamente
+          console.log(`[TICKET] Auto-closing ticket ${ticketId} after 24 hours without completing reviews`);
+          
+          // Asignar 5 estrellas automáticamente si no se completaron
+          if (!ticket.serviceRating) {
+            ticket.serviceRating = 5;
+          }
+          if (!ticket.staffRating) {
+            ticket.staffRating = 5;
+          }
+          saveTickets();
+          
           await this.closeTicket(guild, ticketId, 'Sistema');
         }
       }
@@ -1094,6 +1306,59 @@ export class TicketManager {
    */
   static saveTickets() {
     saveTickets();
+  }
+
+  /**
+   * Recuperar tickets al iniciar el bot - verificar que los canales existan
+   */
+  static async recoverTickets(guild) {
+    try {
+      loadTickets();
+      console.log(`[TICKET-RECOVERY] Checking tickets for guild ${guild.name}...`);
+      
+      let recovered = 0;
+      let closed = 0;
+      
+      for (const [ticketId, ticket] of Object.entries(ticketsData.tickets)) {
+        // Solo verificar tickets de este servidor
+        if (ticket.guildId && ticket.guildId !== guild.id) continue;
+        
+        // Si el ticket ya está cerrado, continuar
+        if (ticket.closed) continue;
+        
+        try {
+          // Verificar que el canal existe
+          const channel = await guild.channels.fetch(ticket.channelId).catch(() => null);
+          
+          if (!channel) {
+            // Canal no existe, marcar ticket como cerrado
+            console.log(`[TICKET-RECOVERY] Channel not found for ticket ${ticketId}, marking as closed`);
+            ticket.closed = true;
+            ticket.closedAt = new Date().toISOString();
+            ticket.closeReason = 'Channel deleted or bot restarted';
+            closed++;
+          } else {
+            // Canal existe, verificar que el ticket esté activo
+            console.log(`[TICKET-RECOVERY] ✅ Ticket ${ticketId} channel exists: ${channel.name}`);
+            recovered++;
+            
+            // Asegurar que el ticket tenga guildId guardado
+            if (!ticket.guildId) {
+              ticket.guildId = guild.id;
+            }
+          }
+        } catch (error) {
+          console.error(`[TICKET-RECOVERY] Error checking ticket ${ticketId}:`, error.message);
+        }
+      }
+      
+      // Guardar cambios
+      saveTickets();
+      
+      console.log(`[TICKET-RECOVERY] ✅ Recovered ${recovered} tickets, closed ${closed} invalid tickets`);
+    } catch (error) {
+      console.error('[TICKET-RECOVERY] Error recovering tickets:', error);
+    }
   }
 }
 

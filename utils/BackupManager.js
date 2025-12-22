@@ -83,8 +83,58 @@ export class BackupManager {
         }
       }
 
-      // Backup channels
+      // Backup categories first
+      const categories = [];
+      for (const [, category] of guild.channels.cache) {
+        if (category.type === 4) { // Category channel
+          categories.push({
+            name: category.name,
+            position: category.position,
+            permissionOverwrites: []
+          });
+
+          // Backup category permission overwrites
+          for (const [, overwrite] of category.permissionOverwrites.cache) {
+            categories[categories.length - 1].permissionOverwrites.push({
+              id: overwrite.id,
+              type: overwrite.type,
+              allow: overwrite.allow.bitfield.toString(),
+              deny: overwrite.deny.bitfield.toString()
+            });
+          }
+        }
+      }
+      backupData.categories = categories;
+
+      // Backup channels (excluding tickets)
+      const { TicketManager } = await import('./TicketManager.js');
+      const ticketChannels = new Set();
+      
+      // Obtener todos los canales de tickets
+      try {
+        const ticketsFilePath = path.join(process.cwd(), 'tickets.json');
+        if (fs.existsSync(ticketsFilePath)) {
+          const ticketsData = JSON.parse(fs.readFileSync(ticketsFilePath, 'utf-8'));
+          for (const ticket of Object.values(ticketsData.tickets || {})) {
+            if (ticket.channelId) {
+              ticketChannels.add(ticket.channelId);
+            }
+          }
+        }
+      } catch (e) {
+        console.log('[BACKUP] No tickets file found or error reading it');
+      }
+
       for (const [, channel] of guild.channels.cache) {
+        // Skip ticket channels
+        if (ticketChannels.has(channel.id)) {
+          console.log(`[BACKUP] Skipping ticket channel: ${channel.name}`);
+          continue;
+        }
+
+        // Skip category channels (already backed up)
+        if (channel.type === 4) continue;
+
         const channelData = {
           name: channel.name,
           type: channel.type,
@@ -94,7 +144,8 @@ export class BackupManager {
           bitrate: channel.bitrate,
           userLimit: channel.userLimit,
           permissionOverwrites: [],
-          parentId: channel.parentId
+          parentId: channel.parentId,
+          messages: [] // Para guardar mensajes
         };
 
         // Backup permission overwrites
@@ -105,6 +156,40 @@ export class BackupManager {
             allow: overwrite.allow.bitfield.toString(),
             deny: overwrite.deny.bitfield.toString()
           });
+        }
+
+        // Backup messages (solo para canales de texto, máximo 100 por canal)
+        if (channel.type === 0) { // GuildText
+          try {
+            const messages = await channel.messages.fetch({ limit: 100 });
+            for (const [, message] of messages) {
+              channelData.messages.push({
+                id: message.id,
+                content: message.content,
+                author: {
+                  id: message.author.id,
+                  username: message.author.username,
+                  tag: message.author.tag
+                },
+                timestamp: message.createdTimestamp,
+                embeds: message.embeds.map(e => ({
+                  title: e.title,
+                  description: e.description,
+                  color: e.color,
+                  fields: e.fields,
+                  footer: e.footer,
+                  timestamp: e.timestamp
+                })),
+                attachments: message.attachments.map(a => ({
+                  name: a.name,
+                  url: a.url,
+                  contentType: a.contentType
+                }))
+              });
+            }
+          } catch (msgError) {
+            console.error(`[BACKUP] Error backing up messages for ${channel.name}: ${msgError.message}`);
+          }
         }
 
         backupData.channels.push(channelData);
@@ -236,13 +321,73 @@ export class BackupManager {
         }
       }
 
+      // Restore categories first
+      console.log(`[RESTORE] Restoring categories...`);
+      const categoryMap = new Map();
+      
+      if (backupData.categories) {
+        for (const categoryData of backupData.categories) {
+          try {
+            const existingCategory = guild.channels.cache.find(c => c.type === 4 && c.name === categoryData.name);
+            
+            if (existingCategory) {
+              await existingCategory.edit({
+                name: categoryData.name,
+                position: categoryData.position
+              });
+              categoryMap.set(categoryData.name, existingCategory.id);
+            } else {
+              const newCategory = await guild.channels.create({
+                name: categoryData.name,
+                type: 4, // Category
+                position: categoryData.position
+              });
+              categoryMap.set(categoryData.name, newCategory.id);
+            }
+            
+            // Restore category permissions
+            const category = guild.channels.cache.get(categoryMap.get(categoryData.name));
+            if (category) {
+              for (const overwrite of categoryData.permissionOverwrites) {
+                try {
+                  const target = guild.roles.cache.get(overwrite.id) || guild.members.cache.get(overwrite.id);
+                  if (target) {
+                    await category.permissionOverwrites.create(target, {
+                      Allow: BigInt(overwrite.allow),
+                      Deny: BigInt(overwrite.deny)
+                    });
+                  }
+                } catch (permError) {
+                  console.error(`[RESTORE] Error setting category permissions: ${permError.message}`);
+                }
+              }
+            }
+          } catch (error) {
+            console.error(`[RESTORE] Error restoring category ${categoryData.name}:`, error.message);
+            restored.errors.push(`Category ${categoryData.name}: ${error.message}`);
+          }
+        }
+      }
+
       // Restore channels
       console.log(`[RESTORE] Restoring channels...`);
       const channelMap = new Map(); // Map old channel names to new IDs
 
       for (const channelData of backupData.channels) {
         try {
-          const existingChannel = guild.channels.cache.find(c => c.name === channelData.name);
+          // Find parent category if exists
+          let parentId = null;
+          if (channelData.parentId) {
+            // Try to find category by old ID or name
+            const parentCategory = guild.channels.cache.find(c => 
+              c.type === 4 && (c.id === channelData.parentId || c.name === channelData.name)
+            );
+            if (parentCategory) {
+              parentId = parentCategory.id;
+            }
+          }
+
+          const existingChannel = guild.channels.cache.find(c => c.name === channelData.name && c.type === channelData.type);
 
           if (existingChannel) {
             await existingChannel.edit({
@@ -251,7 +396,8 @@ export class BackupManager {
               nsfw: channelData.nsfw,
               bitrate: channelData.bitrate,
               userLimit: channelData.userLimit,
-              position: channelData.position
+              position: channelData.position,
+              parent: parentId
             });
             channelMap.set(channelData.name, existingChannel.id);
           } else {
@@ -262,7 +408,8 @@ export class BackupManager {
               nsfw: channelData.nsfw,
               bitrate: channelData.bitrate,
               userLimit: channelData.userLimit,
-              position: channelData.position
+              position: channelData.position,
+              parent: parentId
             });
             channelMap.set(channelData.name, newChannel.id);
           }

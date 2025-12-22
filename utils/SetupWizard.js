@@ -18,7 +18,10 @@ export class SetupWizard {
         ratingChannelId: null,
         spamChannelId: null,
         trialAdminRoleId: null,
-        vouchesChannelId: null
+        vouchesChannelId: null,
+        verificationChannelId: null,
+        memberRoleId: null,
+        verificationCategoryId: null
       }
     };
     this.setupSessions.set(userId, session);
@@ -159,6 +162,22 @@ export class SetupWizard {
         fieldName: 'Vouches/Feedbacks Channel',
         fieldValue: session.config.vouchesChannelId ? `<#${session.config.vouchesChannelId}>` : 'Not configured (Optional)',
         buttonId: 'setup_vouches_channel',
+        optional: true
+      },
+      {
+        title: '✅ Step 17: Verification Channel',
+        description: '**What is it?**\nThis channel displays the verification embed that users must authorize to gain access to the server.\n\n**What does it contain?**\n• Verification embed with server name and logo\n• "Verify" button that opens Discord authorization\n• After authorization, users receive the member role\n\n**Is it mandatory?** No, but recommended for server security.',
+        fieldName: 'Verification Channel',
+        fieldValue: session.config.verificationChannelId ? `<#${session.config.verificationChannelId}>` : 'Not configured (Optional)',
+        buttonId: 'setup_verification_channel',
+        optional: true
+      },
+      {
+        title: '👥 Step 18: Member Role (for verification)',
+        description: '**What is it?**\nThis role is automatically assigned to users after they complete the verification process.\n\n**What is it for?**\nTo grant access to the server after users authorize the bot through the verification system.\n\n**Is it mandatory?** Only if you configure the verification channel.',
+        fieldName: 'Member Role',
+        fieldValue: session.config.memberRoleId ? `<@&${session.config.memberRoleId}>` : 'Not configured (Optional)',
+        buttonId: 'setup_member_role',
         optional: true
       }
     ];

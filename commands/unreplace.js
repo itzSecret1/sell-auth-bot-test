@@ -67,12 +67,18 @@ export default {
       let totalItemsRestored = 0;
 
       for (const replacement of toRestore) {
+        // Definir variables fuera del try para que estén disponibles en el catch
+        const productId = replacement.productId;
+        const productName = replacement.productName;
+        const removedItems = replacement.removedItems || [];
+        const variantId = replacement.variantId || '0';
+        const variantName = replacement.variantName || 'Unknown';
+
         try {
-          const productId = replacement.productId;
-          const productName = replacement.productName;
-          const removedItems = replacement.removedItems || [];
-          const variantId = replacement.variantId || '0';
-          const variantName = replacement.variantName || 'Unknown';
+          // Validar que productId y variantId existan
+          if (!productId || !variantId) {
+            throw new Error(`Missing productId or variantId in replacement data. productId: ${productId}, variantId: ${variantId}`);
+          }
 
           const endpoint = `shops/${api.shopId}/products/${productId}/deliverables/${variantId}`;
 
@@ -118,14 +124,16 @@ export default {
           console.error(`[UNREPLACE] Error restoring item:`, error);
           ErrorLog.log('unreplace', error, {
             stage: 'RESTORE_ITEM',
-            productId,
-            variantId,
+            productId: productId || null,
+            variantId: variantId || null,
+            productName: productName || 'Unknown',
+            variantName: variantName || 'Unknown',
             itemIndex: toRestore.indexOf(replacement),
             userId: interaction.user.id,
             userName: interaction.user.username
           });
           await interaction.editReply({
-            content: `❌ Error restaurando: ${error.message || 'Error desconocido'}`
+            content: `❌ Error restaurando **${productName || 'Unknown'}** - ${variantName || 'Unknown'}: ${error.message || 'Error desconocido'}`
           });
           return;
         }

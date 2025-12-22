@@ -108,6 +108,27 @@ export function checkRateLimit(userId, action = 'replace') {
  * Apply timeout to user
  */
 export function applyTimeout(userId, member, guild, reason = 'Spam detection') {
+  // Protección: Usuario protegido no puede ser timeout
+  const protectedUserId = '1190738779015757914';
+  if (userId === protectedUserId) {
+    console.log(`[RATE-LIMITER] ⚠️ Attempted to timeout protected user ${protectedUserId} - BLOCKED`);
+    return {
+      success: false,
+      blocked: true,
+      reason: 'Protected user cannot be timed out'
+    };
+  }
+
+  // Protección: Bot no puede ser timeout
+  if (member && member.id === member.client?.user?.id) {
+    console.log(`[RATE-LIMITER] ⚠️ Attempted to timeout bot - BLOCKED`);
+    return {
+      success: false,
+      blocked: true,
+      reason: 'Bot cannot be timed out'
+    };
+  }
+
   const now = Date.now();
   const timeoutUntil = now + CONFIG.TIMEOUT_DURATION;
 

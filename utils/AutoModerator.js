@@ -42,8 +42,18 @@ export class AutoModerator {
       const isOwner = message.member?.roles.cache.has(OWNER_ROLE_ID);
       if (isOwner) return;
 
+      // Verificar si el canal permite links (canales con nombre "partner" o "partners")
+      const channelName = message.channel.name?.toLowerCase() || '';
+      const isPartnerChannel = channelName.includes('partner');
+
       for (const violation of violations) {
         if (violation.type === 'discord_invite') {
+          // Si es un canal de partner, permitir el link
+          if (isPartnerChannel) {
+            console.log(`[AUTOMOD] ✅ Discord invite allowed in partner channel: ${message.channel.name}`);
+            return; // No eliminar el mensaje
+          }
+
           // Delete the message
           await message.delete().catch(() => {});
 

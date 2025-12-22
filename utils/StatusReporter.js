@@ -133,7 +133,10 @@ export class StatusReporter {
         // Try to fetch the channel
         try {
           channel = await this.client.channels.fetch(channelId);
-          if (!channel) return;
+          if (!channel) {
+            // Channel doesn't exist - silently skip
+            return;
+          }
         } catch (fetchError) {
           // Channel doesn't exist or bot doesn't have access - silently skip
           return;
@@ -178,12 +181,26 @@ export class StatusReporter {
         })
         .setTimestamp();
 
-      await channel.send({ embeds: [embed] });
-      console.log('[STATUS] ✅ Daily status update sent to staff channel');
+      try {
+        await channel.send({ embeds: [embed] });
+        console.log('[STATUS] ✅ Daily status update sent to staff channel');
 
-      this.dailyMessageSent = true;
-      this.lastDailyMessageTime = today;
+        this.dailyMessageSent = true;
+        this.lastDailyMessageTime = today;
+      } catch (sendError) {
+        // Silently handle send errors - channel might not exist or bot doesn't have permission
+        if (sendError.code === 50001 || sendError.code === 10003 || sendError.message?.includes('Channel not found') || sendError.message?.includes('Missing Access')) {
+          // Channel doesn't exist or bot doesn't have access - silently skip
+          return;
+        }
+        throw sendError; // Re-throw if it's a different error
+      }
     } catch (error) {
+      // Silently handle errors - don't log if channel doesn't exist
+      if (error.code === 50001 || error.code === 10003 || error.message?.includes('Channel not found') || error.message?.includes('Missing Access')) {
+        // Channel doesn't exist or bot doesn't have access - silently skip
+        return;
+      }
       console.error('[STATUS] Error sending daily status:', error.message);
     }
   }

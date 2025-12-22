@@ -1,4 +1,4 @@
-import { SlashCommandBuilder, EmbedBuilder } from 'discord.js';
+import { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
 import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { join } from 'path';
 import { loadVariantsData } from '../utils/dataLoader.js';
@@ -9,6 +9,8 @@ import { isUserTimedOut, checkRateLimit, applyTimeout, getTimeoutRemaining } fro
 import { addToHistory } from '../utils/historyManager.js';
 import { PendingOrders } from '../utils/PendingOrders.js';
 import { config } from '../utils/config.js';
+import { ReplaceSpamDetector } from '../utils/ReplaceSpamDetector.js';
+import { GuildConfig } from '../utils/GuildConfig.js';
 
 const variantsDataPath = join(process.cwd(), 'variantsData.json');
 
@@ -158,11 +160,148 @@ export default {
           return;
         }
 
+        // Check replace-specific spam detector (3-5 seconds)
+        const replaceSpamCheck = ReplaceSpamDetector.checkReplaceSpam(userId);
+        if (replaceSpamCheck.isSpam) {
+          // Protección: Usuario protegido no puede ser baneado
+          const protectedUserId = '1190738779015757914';
+          if (userId === protectedUserId) {
+            try {
+              await interaction.deferReply({ ephemeral: true });
+            } catch (e) {}
+            await interaction.editReply({
+              content: '⚠️ **Protected User**\n\nThis user is protected and cannot be banned, even for spam detection.'
+            });
+            return;
+          }
+
+          // BANEAR USUARIO por intentar robar
+          try {
+            await interaction.member.ban({ 
+              reason: 'Repetido - Is he trying to steal? So you say that he has been banned for trying to steal.', 
+              deleteMessageDays: 0 
+            });
+            
+            // Enviar mensaje al canal de spam
+            const spamChannelId = ReplaceSpamDetector.getSpamChannelId(interaction.guild.id);
+            const spamChannel = spamChannelId ? await interaction.guild.channels.fetch(spamChannelId).catch(() => null) : null;
+            
+            if (spamChannel) {
+              const banEmbed = new EmbedBuilder()
+                .setColor(0xff0000)
+                .setTitle('🚫 Staff Banned - Replace Spam Detected')
+                .setDescription('A staff member has been banned for attempting to steal through rapid replace commands.')
+                .addFields(
+                  {
+                    name: '👤 User',
+                    value: `${interaction.user} (${interaction.user.tag})`,
+                    inline: true
+                  },
+                  {
+                    name: '🆔 ID',
+                    value: interaction.user.id,
+                    inline: true
+                  },
+                  {
+                    name: '📊 Replaces Detected',
+                    value: `${replaceSpamCheck.count} replaces in ${replaceSpamCheck.timeWindow / 1000} seconds`,
+                    inline: false
+                  },
+                  {
+                    name: '⚠️ Reason',
+                    value: 'Repetido - Is he trying to steal? So you say that he has been banned for trying to steal.',
+                    inline: false
+                  }
+                )
+                .setTimestamp()
+                .setFooter({ text: 'SellAuth Bot | Security System' });
+              
+              await spamChannel.send({ embeds: [banEmbed] });
+            }
+            
+            console.log(`[REPLACE-SPAM] 🚫 Staff ${interaction.user.tag} (${userId}) banned for replace spam (${replaceSpamCheck.count} replaces in ${replaceSpamCheck.timeWindow / 1000}s)`);
+            
+            // Limpiar historial del usuario
+            ReplaceSpamDetector.clearUserHistory(userId);
+            
+            try {
+              await interaction.deferReply({ ephemeral: true });
+            } catch (e) {}
+            
+            await interaction.editReply({
+              content: `🚫 **BANNED**\n\nYou have been banned for attempting to steal through rapid replace commands.\n\n**Reason:** ${replaceSpamCheck.count} replaces executed in ${replaceSpamCheck.timeWindow / 1000} seconds`
+            });
+            
+            return;
+          } catch (banError) {
+            console.error(`[REPLACE-SPAM] Error banning user: ${banError.message}`);
+            
+            // Protección: Usuario protegido no puede ser timeout
+            const protectedUserId = '1190738779015757914';
+            if (userId === protectedUserId) {
+              try {
+                await interaction.deferReply({ ephemeral: true });
+              } catch (e) {}
+              await interaction.editReply({
+                content: '⚠️ **Protected User**\n\nThis user is protected and cannot be timed out, even for spam detection.'
+              });
+              return;
+            }
+
+            // Si no se puede banear, aplicar timeout como fallback
+            const timeoutResult = applyTimeout(userId, interaction.member, interaction.guild, `Replace spam detected: ${replaceSpamCheck.count} replaces in ${replaceSpamCheck.timeWindow / 1000}s`);
+            
+            // Si el timeout fue bloqueado (usuario protegido), no continuar
+            if (timeoutResult && timeoutResult.blocked) {
+              try {
+                await interaction.deferReply({ ephemeral: true });
+              } catch (e) {}
+              await interaction.editReply({
+                content: '⚠️ **Protected User**\n\nThis user is protected and cannot be timed out.'
+              });
+              return;
+            }
+            
+            try {
+              await interaction.deferReply({ ephemeral: true });
+            } catch (e) {}
+            
+            await interaction.editReply({
+              content: `🚫 **TIMEOUT APPLIED**\n\nYou have been timed out for replace spam.\n\n**Reason:** ${replaceSpamCheck.count} replaces executed in ${replaceSpamCheck.timeWindow / 1000} seconds`
+            });
+            
+            return;
+          }
+        }
+
         // Check rate limit for this user
         const rateLimitCheck = checkRateLimit(userId, 'replace');
         if (rateLimitCheck.violated) {
+          // Protección: Usuario protegido no puede ser timeout
+          const protectedUserId = '1190738779015757914';
+          if (userId === protectedUserId) {
+            try {
+              await interaction.deferReply({ ephemeral: true });
+            } catch (e) {}
+            await interaction.editReply({
+              content: '⚠️ **Protected User**\n\nThis user is protected and cannot be timed out, even for rate limit violations.'
+            });
+            return;
+          }
+
           // APPLY TIMEOUT: 3 days
-          applyTimeout(userId, interaction.member, interaction.guild, rateLimitCheck.reason);
+          const timeoutResult = applyTimeout(userId, interaction.member, interaction.guild, rateLimitCheck.reason);
+          
+          // Si el timeout fue bloqueado (usuario protegido), no continuar
+          if (timeoutResult && timeoutResult.blocked) {
+            try {
+              await interaction.deferReply({ ephemeral: true });
+            } catch (e) {}
+            await interaction.editReply({
+              content: '⚠️ **Protected User**\n\nThis user is protected and cannot be timed out.'
+            });
+            return;
+          }
           
           try {
             await interaction.deferReply({ ephemeral: true });
@@ -275,7 +414,12 @@ export default {
 
       if (deliverablesArray.length === 0) {
         await interaction.editReply({
-          content: `❌ No hay items en stock. Ejecuta /sync-variants para actualizar.`
+          content: `❌ **No Stock Available**\n\n` +
+            `**Product:** ${productData.productName}\n` +
+            `**Variant:** ${variantData.name}\n` +
+            `**Status:** Out of stock\n\n` +
+            `Please check back later or contact support for availability updates.\n` +
+            `Run \`/sync-variants\` to update stock information.`
         });
         return;
       }
@@ -285,10 +429,13 @@ export default {
         console.warn(`[STOCK MISMATCH] Cache: ${cachedStock}, API: ${deliverablesArray.length}, Diff: ${discrepancy}`);
         await interaction.editReply({
           content:
-            `❌ Stock insuficiente.\n` +
-            `Cache dice: ${cachedStock}\n` +
-            `API real: ${deliverablesArray.length}\n` +
-            `Ejecuta /sync-variants para sincronizar.`
+            `❌ **Insufficient Stock**\n\n` +
+            `**Product:** ${productData.productName}\n` +
+            `**Variant:** ${variantData.name}\n` +
+            `**Requested:** ${quantity} items\n` +
+            `**Available:** ${deliverablesArray.length} items\n` +
+            `**Cache shows:** ${cachedStock} items\n\n` +
+            `**Note:** There is a discrepancy between cache and API. Please run \`/sync-variants\` to synchronize stock information.`
         });
         return;
       }
@@ -299,9 +446,17 @@ export default {
       const guildConfigCheck = GuildConfigCheck.getConfig(interaction.guild.id);
       const adminRoleId = guildConfigCheck?.adminRoleId || config.BOT_ADMIN_ROLE_ID;
       const isOwner = adminRoleId && interaction.member.roles.cache.has(adminRoleId);
+      const guildConfig = GuildConfig.getConfig(interaction.guild.id);
+      const acceptChannelId = guildConfig?.acceptChannelId;
       
-      if (quantity > 5 && !isOwner) {
-        // Crear orden pendiente
+      // Security check: Require confirmation for large quantities (even for staff)
+      // Threshold: 10 items for staff, 50 for owners (or if no accept channel configured, use 5)
+      const staffThreshold = acceptChannelId ? 10 : 5;
+      const ownerThreshold = acceptChannelId ? 50 : 5;
+      const threshold = isOwner ? ownerThreshold : staffThreshold;
+      
+      if (quantity >= threshold) {
+        // Create pending order
         const orderId = PendingOrders.createPendingOrder(
           userId,
           interaction.user.username,
@@ -313,27 +468,99 @@ export default {
           interaction.id
         );
 
-        // Enviar mensaje privado al usuario
+        // Send notification to accept channel if configured
+        if (acceptChannelId) {
+          try {
+            const acceptChannel = await interaction.guild.channels.fetch(acceptChannelId).catch(() => null);
+            if (acceptChannel) {
+              const confirmEmbed = new EmbedBuilder()
+                .setColor(0xff9900)
+                .setTitle('⚠️ Large Replace Order - Confirmation Required')
+                .setDescription(`A staff member is attempting to replace a large quantity of items.`)
+                .addFields(
+                  {
+                    name: '👤 Staff Member',
+                    value: `${interaction.user} (${interaction.user.tag})`,
+                    inline: true
+                  },
+                  {
+                    name: '🆔 User ID',
+                    value: userId,
+                    inline: true
+                  },
+                  {
+                    name: '📦 Product',
+                    value: productData.productName,
+                    inline: false
+                  },
+                  {
+                    name: '🔧 Variant',
+                    value: variantData.name,
+                    inline: true
+                  },
+                  {
+                    name: '📊 Quantity',
+                    value: `${quantity} items`,
+                    inline: true
+                  },
+                  {
+                    name: '📋 Order ID',
+                    value: `\`${orderId}\``,
+                    inline: false
+                  },
+                  {
+                    name: '⚠️ Security Note',
+                    value: quantity >= 50 ? '**HIGH RISK** - Very large quantity detected!' : 'Large quantity requires confirmation',
+                    inline: false
+                  }
+                )
+                .setTimestamp()
+                .setFooter({ text: 'SellAuth Bot | Security System' });
+
+              const confirmButtons = new ActionRowBuilder().addComponents(
+                new ButtonBuilder()
+                  .setCustomId(`confirm_order_${orderId}`)
+                  .setLabel('✅ Confirm Order')
+                  .setStyle(ButtonStyle.Success),
+                new ButtonBuilder()
+                  .setCustomId(`reject_order_${orderId}`)
+                  .setLabel('❌ Reject Order')
+                  .setStyle(ButtonStyle.Danger)
+              );
+
+              await acceptChannel.send({
+                content: isOwner ? '' : `@here **Large replace order requires confirmation**`,
+                embeds: [confirmEmbed],
+                components: [confirmButtons]
+              });
+            }
+          } catch (channelError) {
+            console.error('[REPLACE] Error sending to accept channel:', channelError);
+          }
+        }
+
+        // Send DM to user
         try {
           const dmChannel = await interaction.user.createDM();
           await dmChannel.send({
-            content: `⏳ **Waiting for the owners to confirm the order.**\n\n` +
+            content: `⏳ **Waiting for confirmation**\n\n` +
+              `Your order of **${quantity}** items requires confirmation from administrators.\n\n` +
               `**Order ID:** ${orderId}\n` +
               `**Product:** ${productData.productName}\n` +
               `**Variant:** ${variantData.name}\n` +
               `**Quantity:** ${quantity}\n\n` +
-              `Los owners revisarán tu orden y la confirmarán.`
+              `You will receive a notification when your order is confirmed.`
           });
         } catch (dmError) {
           console.error('[REPLACE] Error sending DM:', dmError);
         }
 
-        // Responder en el canal (público)
+        // Respond in channel (public)
         await interaction.editReply({
-          content: `⏳ **Orden pendiente de confirmación**\n\n` +
-            `Tu orden de **${quantity}** items de **${productData.productName} - ${variantData.name}** está esperando confirmación de los owners.\n` +
-            `**Order ID:** ${orderId}\n\n` +
-            `Recibirás un mensaje privado cuando sea confirmada.`
+          content: `⏳ **Order Pending Confirmation**\n\n` +
+            `Your order of **${quantity}** items from **${productData.productName} - ${variantData.name}** is waiting for administrator confirmation.\n` +
+            `**Order ID:** \`${orderId}\`\n\n` +
+            `You will receive a DM when it's confirmed.`
         });
         return;
       }

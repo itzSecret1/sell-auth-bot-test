@@ -42,6 +42,23 @@ export default {
       const reason = interaction.options.getString('reason') || 'No reason specified';
       const deleteDays = interaction.options.getInteger('delete_days') || 0;
 
+      // Protección: Usuario protegido no puede ser baneado
+      const protectedUserId = '1190738779015757914';
+      if (targetUser.id === protectedUserId) {
+        await interaction.editReply({
+          content: '❌ **Protected User**\n\nThis user cannot be banned, kicked, muted, or timed out by anyone except Discord itself.'
+        });
+        return;
+      }
+
+      // Protección: Bot no puede ser baneado
+      if (targetUser.id === interaction.client.user.id) {
+        await interaction.editReply({
+          content: '❌ **Bot Protection**\n\nThe bot cannot be banned.'
+        });
+        return;
+      }
+
       // Verificar que el usuario no se esté baneando a sí mismo
       if (targetUser.id === interaction.user.id) {
         await interaction.editReply({
