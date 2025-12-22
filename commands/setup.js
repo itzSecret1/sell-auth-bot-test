@@ -209,6 +209,7 @@ export default {
       ratingChannelId: ratingChannel?.id || existingConfig.ratingChannelId || null,
       spamChannelId: spamChannel?.id || existingConfig.spamChannelId || null,
       trialAdminRoleId: trialAdminRole?.id || existingConfig.trialAdminRoleId || null,
+      viewerRoleId: existingConfig.viewerRoleId || null,
       // Preservar campos adicionales que pueden estar configurados en setup start
       botStatusChannelId: existingConfig.botStatusChannelId || null,
       automodChannelId: existingConfig.automodChannelId || null,
