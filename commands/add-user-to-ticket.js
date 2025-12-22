@@ -58,12 +58,14 @@ export default {
         return;
       }
 
-      // Add user to channel permissions
+      // Add user to channel permissions (incluyendo permisos para videos y archivos)
       try {
         await channel.permissionOverwrites.create(targetUser.id, {
           ViewChannel: true,
           SendMessages: true,
-          ReadMessageHistory: true
+          AttachFiles: true, // Permite enviar videos y archivos
+          ReadMessageHistory: true,
+          EmbedLinks: true // Permite embeds (útil para previews de videos)
         });
 
         // Send notification to ticket

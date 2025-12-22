@@ -293,9 +293,11 @@ export class TicketManager {
               allow: [
                 PermissionFlagsBits.ViewChannel, 
                 PermissionFlagsBits.SendMessages,
-                PermissionFlagsBits.AttachFiles,
+                PermissionFlagsBits.AttachFiles, // Permite videos y archivos
                 PermissionFlagsBits.ReadMessageHistory,
-                PermissionFlagsBits.EmbedLinks
+                PermissionFlagsBits.EmbedLinks, // Permite embeds (previews de videos)
+                PermissionFlagsBits.UseExternalEmojis, // Permite emojis externos
+                PermissionFlagsBits.UseExternalStickers // Permite stickers externos
               ]
             }
           ]
@@ -319,9 +321,11 @@ export class TicketManager {
           allow: [
             PermissionFlagsBits.ViewChannel, 
             PermissionFlagsBits.SendMessages,
-            PermissionFlagsBits.AttachFiles,
+            PermissionFlagsBits.AttachFiles, // Permite videos y archivos
             PermissionFlagsBits.ReadMessageHistory,
-            PermissionFlagsBits.EmbedLinks
+            PermissionFlagsBits.EmbedLinks, // Permite embeds (previews de videos)
+            PermissionFlagsBits.UseExternalEmojis, // Permite emojis externos (opcional pero útil)
+            PermissionFlagsBits.UseExternalStickers // Permite stickers externos (opcional pero útil)
           ]
         }
       ];
