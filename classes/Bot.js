@@ -3197,7 +3197,7 @@ export class Bot {
         // Verificar si el nuevo nombre contiene "done" (con o sin emoji/sticker)
         const newNameLower = newChannel.name.toLowerCase();
         // Normalizar nombre para detectar "done" incluso con emojis/stickers
-        const normalizedName = normalizeCategoryName(newNameLower);
+        const normalizedName = this.normalizeCategoryName(newNameLower);
         const hasDone = normalizedName.includes('done') || 
                         newNameLower.includes('✅') || 
                         newNameLower.includes('check') ||
