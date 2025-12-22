@@ -65,6 +65,18 @@ export default {
             .setDescription('Rol de trial admin (solo sync-variants, opcional)')
             .setRequired(false)
         )
+        .addChannelOption((option) =>
+          option
+            .setName('verification_channel')
+            .setDescription('Canal para verificación/autorización del bot (opcional)')
+            .setRequired(false)
+        )
+        .addRoleOption((option) =>
+          option
+            .setName('member_role')
+            .setDescription('Rol de miembro (se asigna al verificar/autorizar, opcional)')
+            .setRequired(false)
+        )
     )
     .addSubcommand((sub) =>
       sub
@@ -219,6 +231,8 @@ export default {
     const ratingChannel = interaction.options.getChannel('rating_channel');
     const spamChannel = interaction.options.getChannel('spam_channel');
     const trialAdminRole = interaction.options.getRole('trial_admin_role');
+    const verificationChannel = interaction.options.getChannel('verification_channel');
+    const memberRole = interaction.options.getRole('member_role');
 
     // Verificar permisos del bot
     const botMember = await interaction.guild.members.fetch(interaction.client.user.id);
@@ -266,8 +280,8 @@ export default {
       staffRatingSupportChannelId: existingConfig.staffRatingSupportChannelId || null,
       staffFeedbacksChannelId: existingConfig.staffFeedbacksChannelId || null,
       vouchesChannelId: existingConfig.vouchesChannelId || null,
-      verificationChannelId: existingConfig.verificationChannelId || null,
-      memberRoleId: existingConfig.memberRoleId || null,
+      verificationChannelId: verificationChannel?.id || existingConfig.verificationChannelId || null,
+      memberRoleId: memberRole?.id || existingConfig.memberRoleId || null,
       verificationCategoryId: existingConfig.verificationCategoryId || null,
       configuredBy: interaction.user.id,
       configuredByUsername: interaction.user.username
@@ -341,6 +355,16 @@ export default {
         {
           name: '🔧 Trial Admin Role',
           value: trialAdminRole ? `${trialAdminRole}` : 'Not configured',
+          inline: true
+        },
+        {
+          name: '🔐 Verification Channel',
+          value: verificationChannel ? `${verificationChannel}` : 'Not configured',
+          inline: true
+        },
+        {
+          name: '👤 Member Role',
+          value: memberRole ? `${memberRole}` : 'Not configured',
           inline: true
         }
       )

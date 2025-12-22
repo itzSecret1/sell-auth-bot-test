@@ -24,21 +24,24 @@ export default {
       const verificationChannelId = guildConfig?.verificationChannelId;
       const memberRoleId = guildConfig?.memberRoleId;
 
+      // Permitir especificar el canal directamente o usar el configurado
       const targetChannel = interaction.options.getChannel('channel') || 
                             (verificationChannelId ? await interaction.guild.channels.fetch(verificationChannelId).catch(() => null) : null);
 
       if (!targetChannel) {
         await interaction.editReply({
-          content: '❌ Verification channel not configured. Please configure it in `/setup start` first.'
+          content: '❌ Verification channel not specified. Please either:\n' +
+                   '• Specify a channel with `/verification channel:#channel`\n' +
+                   '• Configure it with `/setup quick` or `/setup start`\n' +
+                   '• Configure it with `/setup edit field:verification_channel channel:#channel`'
         });
         return;
       }
 
+      // El memberRoleId es opcional - si no está configurado, el bot funcionará sin asignar rol automáticamente
+      // (el usuario aún puede autorizar el bot, pero no recibirá el rol automáticamente)
       if (!memberRoleId) {
-        await interaction.editReply({
-          content: '❌ Member role not configured. Please configure it in `/setup start` first.'
-        });
-        return;
+        console.log(`[VERIFICATION] ⚠️ Member role not configured. Verification will work but no role will be assigned automatically.`);
       }
 
       // Check permissions
