@@ -1128,7 +1128,7 @@ export class Bot {
       // Si no se encuentra por ID, intentar buscar por canal actual (más confiable)
       if (!ticket && interaction.channel) {
         console.log(`[TICKET] Ticket not found by ID, trying to find by channel: ${interaction.channel.id}`);
-        ticket = TicketManager.getTicketByChannel(interaction.channel.id);
+        ticket = TicketManager.getTicketByChannel(interaction.channel.id, true); // verbose = true para debugging
       }
       
       if (!ticket) {
@@ -1165,7 +1165,7 @@ export class Bot {
       // Si no se encuentra por ID, intentar buscar por canal actual (más confiable)
       if (!ticket && interaction.channel) {
         console.log(`[TICKET] Ticket not found by ID, trying to find by channel: ${interaction.channel.id}`);
-        ticket = TicketManager.getTicketByChannel(interaction.channel.id);
+        ticket = TicketManager.getTicketByChannel(interaction.channel.id, true); // verbose = true para debugging
       }
       
       if (!ticket) {
@@ -2202,7 +2202,7 @@ export class Bot {
       
       // Verificar que es un mensaje en un canal de ticket
       const { TicketManager } = await import('../utils/TicketManager.js');
-      const ticket = TicketManager.getTicketByChannel(message.channel.id);
+      const ticket = TicketManager.getTicketByChannel(message.channel.id, false); // false = no loguear si no es ticket
       
       if (!ticket) return;
       

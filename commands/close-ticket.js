@@ -18,7 +18,7 @@ export default {
   async execute(interaction) {
     try {
       // Verificar que estamos en un canal de ticket
-      let ticket = TicketManager.getTicketByChannel(interaction.channel.id);
+      let ticket = TicketManager.getTicketByChannel(interaction.channel.id, true); // verbose = true para debugging
       
       if (!ticket) {
         // Log para debugging
@@ -28,7 +28,7 @@ export default {
         
         // Intentar buscar de nuevo después de un pequeño delay
         await new Promise(r => setTimeout(r, 500));
-        ticket = TicketManager.getTicketByChannel(interaction.channel.id);
+        ticket = TicketManager.getTicketByChannel(interaction.channel.id, true); // verbose = true para debugging
         
         if (!ticket) {
           await interaction.reply({

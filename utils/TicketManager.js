@@ -1566,12 +1566,14 @@ export class TicketManager {
   /**
    * Obtener ticket por canal
    */
-  static getTicketByChannel(channelId) {
+  static getTicketByChannel(channelId, verbose = false) {
     // Recargar tickets antes de buscar para asegurar datos actualizados
     loadTickets();
     
     if (!channelId) {
-      console.warn('[TICKET] getTicketByChannel called with null/undefined channelId');
+      if (verbose) {
+        console.warn('[TICKET] getTicketByChannel called with null/undefined channelId');
+      }
       return null;
     }
     
@@ -1591,10 +1593,15 @@ export class TicketManager {
       return ticket;
     }
     
-    // Log para debugging
-    console.log(`[TICKET] No ticket found for channel: ${channelId}`);
-    console.log(`[TICKET] Available tickets: ${Object.keys(ticketsData.tickets).length}`);
-    console.log(`[TICKET] Channel IDs in tickets: ${Object.values(ticketsData.tickets).map(t => t.channelId).join(', ')}`);
+    // Solo loguear si se solicita explícitamente (verbose) o si hay tickets disponibles
+    // Esto evita spam cuando se verifica en canales que no son tickets
+    if (verbose || Object.keys(ticketsData.tickets).length > 0) {
+      console.log(`[TICKET] No ticket found for channel: ${channelId}`);
+      if (verbose) {
+        console.log(`[TICKET] Available tickets: ${Object.keys(ticketsData.tickets).length}`);
+        console.log(`[TICKET] Channel IDs in tickets: ${Object.values(ticketsData.tickets).map(t => t.channelId).join(', ')}`);
+      }
+    }
     
     return null;
   }
