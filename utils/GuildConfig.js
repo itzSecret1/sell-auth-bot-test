@@ -278,6 +278,7 @@ export class GuildConfig {
     };
     
     // Intentar guardar múltiples veces si es necesario
+    const data = JSON.stringify(guildConfigs, null, 2);
     let saved = saveGuildConfigs();
     if (!saved) {
       // Si falla, intentar una vez más después de un breve delay
@@ -287,6 +288,12 @@ export class GuildConfig {
       saved = saveGuildConfigs();
     }
     
+    // SIEMPRE intentar guardar backup en Railway (incluso si el archivo se guardó)
+    // Esto asegura que la configuración persista entre deploys
+    saveBackupAsync(data).catch(err => {
+      console.warn(`[GUILD CONFIG] ⚠️ Railway backup save failed (non-critical): ${err.message}`);
+    });
+    
     if (saved) {
       console.log(`[GUILD CONFIG] ${isNew ? '✅ Created' : '🔄 Updated'} configuration for guild: ${guildId} (${config.guildName || 'Unknown'})`);
       // Verificar inmediatamente que se guardó correctamente
@@ -295,9 +302,12 @@ export class GuildConfig {
         console.log(`[GUILD CONFIG] ✅ Verified: Configuration persisted correctly`);
       } else {
         console.error(`[GUILD CONFIG] ⚠️ Warning: Configuration may not have persisted correctly`);
+        // Intentar guardar backup como último recurso
+        saveBackupAsync(data).catch(() => {});
       }
     } else {
       console.error(`[GUILD CONFIG] ❌ Failed to save configuration for guild: ${guildId} after multiple attempts`);
+      console.log(`[GUILD CONFIG] 💾 Configuration will be saved to Railway backup instead`);
     }
     
     return guildConfigs[guildId];
