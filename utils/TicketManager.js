@@ -345,6 +345,37 @@ export class TicketManager {
         }
       }
 
+      // CRÍTICO: Verificar que tenemos una categoría válida - NO crear canal sin categoría
+      if (!ticketCategory || !ticketCategory.id) {
+        console.error(`[TICKET] ❌ CRITICAL ERROR: No valid category available! Creating emergency category...`);
+        try {
+          ticketCategory = await guild.channels.create({
+            name: categoryName,
+            type: ChannelType.GuildCategory,
+            permissionOverwrites: [
+              {
+                id: guild.id,
+                deny: [PermissionFlagsBits.ViewChannel]
+              },
+              {
+                id: user.id,
+                allow: [
+                  PermissionFlagsBits.ViewChannel, 
+                  PermissionFlagsBits.SendMessages,
+                  PermissionFlagsBits.AttachFiles,
+                  PermissionFlagsBits.ReadMessageHistory,
+                  PermissionFlagsBits.EmbedLinks
+                ]
+              }
+            ]
+          });
+          console.log(`[TICKET] ✅ Emergency category created: ${ticketCategory.name} (ID: ${ticketCategory.id})`);
+        } catch (categoryError) {
+          console.error(`[TICKET] ❌ CRITICAL: Failed to create emergency category:`, categoryError);
+          throw new Error(`Failed to create or find category for ticket: ${categoryError.message}`);
+        }
+      }
+
       // Crear canal del ticket con formato específico
       let channelName;
       if (category.toLowerCase() === 'replaces') {
@@ -353,35 +384,36 @@ export class TicketManager {
         channelName = `${category.toLowerCase()}-${user.username.toLowerCase()}`;
       }
 
-      // Crear canal del ticket - SIEMPRE con parent (categoría)
-      const channelCreateOptions = {
+      // Crear canal del ticket - SIEMPRE con parent (categoría) - OBLIGATORIO
+      console.log(`[TICKET] Creating channel "${channelName}" in category "${ticketCategory.name}" (ID: ${ticketCategory.id})`);
+      
+      const ticketChannel = await guild.channels.create({
         name: channelName,
         type: ChannelType.GuildText,
+        parent: ticketCategory.id, // OBLIGATORIO - siempre debe tener categoría
         permissionOverwrites: permissionOverwrites
-      };
-
-      // Asegurar que siempre se asigne una categoría
-      if (ticketCategory && ticketCategory.id) {
-        channelCreateOptions.parent = ticketCategory.id;
-        console.log(`[TICKET] Creating channel "${channelName}" in category "${ticketCategory.name}" (ID: ${ticketCategory.id})`);
-      } else {
-        console.error(`[TICKET] WARNING: ticketCategory is invalid, but proceeding with channel creation`);
-      }
-
-      const ticketChannel = await guild.channels.create(channelCreateOptions);
+      });
       
-      // Verificar que el canal se creó con categoría
-      if (ticketChannel.parentId !== ticketCategory.id) {
-        console.warn(`[TICKET] WARNING: Channel created but parent mismatch. Expected: ${ticketCategory.id}, Got: ${ticketChannel.parentId}`);
-        // Intentar mover el canal a la categoría correcta
+      // Verificar que el canal se creó con categoría correcta
+      if (!ticketChannel.parentId || ticketChannel.parentId !== ticketCategory.id) {
+        console.error(`[TICKET] ❌ ERROR: Channel created without correct parent! Expected: ${ticketCategory.id}, Got: ${ticketChannel.parentId}`);
+        // Intentar mover el canal a la categoría correcta inmediatamente
         try {
           await ticketChannel.setParent(ticketCategory.id);
-          console.log(`[TICKET] ✅ Channel moved to correct category`);
+          console.log(`[TICKET] ✅ Channel moved to correct category after creation`);
         } catch (moveError) {
-          console.error(`[TICKET] ERROR: Failed to move channel to category:`, moveError);
+          console.error(`[TICKET] ❌ CRITICAL: Failed to move channel to category:`, moveError);
+          // Si no se puede mover, eliminar el canal y lanzar error
+          try {
+            await ticketChannel.delete();
+            console.log(`[TICKET] Deleted incorrectly created channel`);
+          } catch (deleteError) {
+            console.error(`[TICKET] Failed to delete channel:`, deleteError);
+          }
+          throw new Error(`Failed to assign category to ticket channel: ${moveError.message}`);
         }
       } else {
-        console.log(`[TICKET] ✅ Channel created successfully in category "${ticketCategory.name}"`);
+        console.log(`[TICKET] ✅ Channel created successfully in category "${ticketCategory.name}" (ID: ${ticketCategory.id})`);
       }
 
       // Crear embed del ticket

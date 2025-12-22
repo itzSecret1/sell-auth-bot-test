@@ -2592,71 +2592,97 @@ export class Bot {
   }
 
   detectInvoice(text) {
-    // Detectar patrones comunes de invoice de SellAuth:
-    // - Formato con guión: 3bcf919f0e26c-0000008525997 (formato más común de SellAuth)
-    // - Formato con guión corto: abc123-123456
-    // - Solo números después del guión: abc123def-1234567890
-    // - INV-12345
-    // - Invoice: ABC123
-    // - #12345
-    // - Combinaciones de letras y números (mínimo 5 caracteres)
+    if (!text || typeof text !== 'string') return null;
     
-    // Primero intentar el formato más común de SellAuth: letras-números con guión
-    const sellAuthPattern = /\b([a-z0-9]{8,20}-[0-9]{7,15})\b/i; // Formato SellAuth: abc123def-1234567890
-    let match = text.match(sellAuthPattern);
-    if (match) {
+    // Formato SellAuth EXACTO: 12-14 caracteres alfanuméricos seguidos de guión y 15 dígitos
+    // Ejemplos válidos:
+    // - 6555d345ec623-0000008535737 (12 chars - 15 digits)
+    // - f6fbff4893023-0000008534297 (13 chars - 15 digits)
+    // - baa5d08755b17-0000008500435 (13 chars - 15 digits)
+    // - 35bd25e19030f-0000008489204 (14 chars - 15 digits)
+    
+    // PATRÓN PRINCIPAL: Formato SellAuth exacto (12-14 alfanuméricos - 15 dígitos)
+    const sellAuthExactPattern = /\b([a-z0-9]{12,14}-[0-9]{15})\b/i;
+    let match = text.match(sellAuthExactPattern);
+    if (match && match[1]) {
       const invoiceId = match[1];
-      console.log(`[INVOICE-DETECT] ✅ Detected SellAuth invoice format: ${invoiceId}`);
+      console.log(`[INVOICE-DETECT] ✅ Detected SellAuth EXACT format: ${invoiceId}`);
       return invoiceId;
     }
     
-    // Patrón más flexible para formato con guión
-    const flexiblePattern = /\b([a-z0-9]{6,}-[0-9]{5,})\b/i;
-    match = text.match(flexiblePattern);
-    if (match) {
+    // PATRÓN FLEXIBLE: Formato similar pero con variaciones en longitud
+    const sellAuthFlexiblePattern = /\b([a-z0-9]{10,16}-[0-9]{10,16})\b/i;
+    match = text.match(sellAuthFlexiblePattern);
+    if (match && match[1]) {
       const invoiceId = match[1];
-      console.log(`[INVOICE-DETECT] ✅ Detected invoice with dash: ${invoiceId}`);
-      return invoiceId;
+      // Verificar que tenga al menos 20 caracteres totales (mínimo razonable para invoice)
+      if (invoiceId.length >= 20) {
+        console.log(`[INVOICE-DETECT] ✅ Detected SellAuth flexible format: ${invoiceId}`);
+        return invoiceId;
+      }
     }
     
-    // Buscar después de palabras clave
+    // Buscar después de palabras clave comunes
     const keywordPatterns = [
-      /(?:invoice|inv|invoice\s*id|invoice\s*number)[\s:]*([a-z0-9-]{8,})/i,
-      /(?:id|number)[\s:]*([a-z0-9]{8,}-[0-9]{7,})/i
+      // Después de "invoice", "invoice id", "invoice number", etc.
+      /(?:invoice|inv|invoice\s*id|invoice\s*number|invoice\s*#)[\s:]*([a-z0-9]{10,}-[0-9]{10,})/i,
+      // Después de "id:" o "number:"
+      /(?:id|number|invoice\s*id)[\s:]*([a-z0-9]{10,}-[0-9]{10,})/i,
+      // Patrón con espacios: "invoice 123abc-456789"
+      /invoice[\s:]+([a-z0-9]{10,}-[0-9]{10,})/i
     ];
     
     for (const pattern of keywordPatterns) {
       match = text.match(pattern);
       if (match && match[1]) {
         const invoiceId = match[1].trim();
-        if (invoiceId.length >= 10) { // Mínimo 10 caracteres para ser válido
-          console.log(`[INVOICE-DETECT] ✅ Detected invoice after keyword: ${invoiceId}`);
-          return invoiceId;
+        // Verificar formato válido
+        if (invoiceId.includes('-') && invoiceId.length >= 20) {
+          const parts = invoiceId.split('-');
+          if (parts.length === 2 && parts[0].length >= 8 && parts[1].length >= 10) {
+            console.log(`[INVOICE-DETECT] ✅ Detected invoice after keyword: ${invoiceId}`);
+            return invoiceId;
+          }
         }
       }
     }
     
-    // Buscar formato #invoice
-    const hashPattern = /#([a-z0-9-]{8,})/i;
+    // Buscar formato con hash: #invoice-id
+    const hashPattern = /#([a-z0-9]{10,}-[0-9]{10,})/i;
     match = text.match(hashPattern);
     if (match && match[1]) {
       const invoiceId = match[1].trim();
-      if (invoiceId.includes('-') || invoiceId.length >= 10) {
+      if (invoiceId.length >= 20) {
         console.log(`[INVOICE-DETECT] ✅ Detected invoice with hash: ${invoiceId}`);
         return invoiceId;
       }
     }
     
-    // Último intento: buscar cualquier combinación alfanumérica larga con guión
-    const fallbackPattern = /\b([a-z0-9]{10,}-[0-9]{5,})\b/i;
+    // Buscar cualquier patrón alfanumérico-largo-guión-números-largos (último recurso)
+    const fallbackPattern = /\b([a-z0-9]{8,}-[0-9]{10,})\b/i;
     match = text.match(fallbackPattern);
-    if (match) {
+    if (match && match[1]) {
       const invoiceId = match[1];
-      console.log(`[INVOICE-DETECT] ⚠️ Detected potential invoice (fallback): ${invoiceId}`);
-      return invoiceId;
+      // Verificar que sea razonablemente largo
+      if (invoiceId.length >= 20) {
+        console.log(`[INVOICE-DETECT] ⚠️ Detected potential invoice (fallback): ${invoiceId}`);
+        return invoiceId;
+      }
     }
     
-    console.log(`[INVOICE-DETECT] ❌ No invoice detected in text: ${text.substring(0, 100)}`);
+    // Buscar sin guión pero con formato largo (muy raro pero posible)
+    const noDashPattern = /\b([a-z0-9]{20,})\b/i;
+    match = text.match(noDashPattern);
+    if (match && match[1]) {
+      const potentialId = match[1];
+      // Si tiene más de 25 caracteres, podría ser un invoice sin guión
+      if (potentialId.length >= 25) {
+        console.log(`[INVOICE-DETECT] ⚠️ Detected potential invoice without dash: ${potentialId}`);
+        return potentialId;
+      }
+    }
+    
+    console.log(`[INVOICE-DETECT] ❌ No invoice detected in text: ${text.substring(0, 150)}`);
     return null;
   }
 
