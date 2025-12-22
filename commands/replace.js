@@ -699,6 +699,14 @@ export default {
           const newName = `✅-done-${ticketId.toLowerCase()}`;
           await interaction.channel.setName(newName);
           console.log(`[REPLACE] Ticket ${ticketId} renombrado automáticamente a "${newName}"`);
+          
+          // Mover automáticamente a categoría "Done"
+          try {
+            await TicketManager.moveTicketToDoneCategory(interaction.guild, ticketId, interaction.channel);
+            console.log(`[REPLACE] ✅ Ticket ${ticketId} moved to "Done" category`);
+          } catch (moveError) {
+            console.error(`[REPLACE] ⚠️ Error moving ticket to Done category:`, moveError.message);
+          }
         } catch (renameError) {
           console.error('[REPLACE] Error al renombrar ticket:', renameError);
         }

@@ -1,4 +1,4 @@
-import { Collection, Events, REST, Routes, ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder, EmbedBuilder, ButtonBuilder, ButtonStyle, MessageFlags } from 'discord.js';
+import { Collection, Events, REST, Routes, ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder, EmbedBuilder, ButtonBuilder, ButtonStyle, MessageFlags, ChannelType } from 'discord.js';
 import axios from 'axios';
 import { readdirSync } from 'fs';
 import { fileURLToPath, pathToFileURL } from 'url';
@@ -263,6 +263,7 @@ export class Bot {
     this.onGuildMemberRemove();
     this.onGuildBanAdd();
     this.onGuildMemberUpdate();
+    this.onChannelUpdate();
 
     process.on('unhandledRejection', (reason, promise) => {
       console.error('[BOT] Unhandled Rejection at:', promise, 'reason:', reason);
@@ -3172,6 +3173,62 @@ export class Bot {
         console.error(`[BOT PROTECTION] Error checking ban: ${error.message}`);
       }
     });
+  }
+
+  /**
+   * Detectar cuando un ticket se renombra con "done" y moverlo a la categoría "Done"
+   */
+  onChannelUpdate() {
+    this.client.on(Events.ChannelUpdate, async (oldChannel, newChannel) => {
+      try {
+        // Solo procesar canales de texto
+        if (newChannel.type !== ChannelType.GuildText) return;
+        
+        // Verificar si el nombre cambió
+        if (oldChannel.name === newChannel.name) return;
+        
+        // Verificar si es un ticket
+        const { TicketManager } = await import('../utils/TicketManager.js');
+        TicketManager.reloadTickets();
+        const ticket = TicketManager.getTicketByChannel(newChannel.id, false);
+        
+        if (!ticket) return; // No es un ticket
+        
+        // Verificar si el nuevo nombre contiene "done" (con o sin emoji/sticker)
+        const newNameLower = newChannel.name.toLowerCase();
+        // Normalizar nombre para detectar "done" incluso con emojis/stickers
+        const normalizedName = normalizeCategoryName(newNameLower);
+        const hasDone = normalizedName.includes('done') || 
+                        newNameLower.includes('✅') || 
+                        newNameLower.includes('check') ||
+                        newNameLower.includes('complete') ||
+                        newNameLower.includes('-done-') ||
+                        newNameLower.startsWith('done-');
+        
+        if (hasDone) {
+          // Mover ticket a categoría "Done"
+          await TicketManager.moveTicketToDoneCategory(newChannel.guild, ticket.id, newChannel);
+          console.log(`[TICKET] ✅ Ticket ${ticket.id} moved to "Done" category after rename to "${newChannel.name}"`);
+        }
+      } catch (error) {
+        console.error(`[TICKET] ❌ Error in onChannelUpdate:`, error.message);
+      }
+    });
+  }
+  
+  // Helper function para normalizar nombres (similar a TicketManager)
+  normalizeCategoryName(name) {
+    if (!name) return '';
+    return name
+      .replace(/[\u{1F300}-\u{1F9FF}]/gu, '')
+      .replace(/[\u{1F600}-\u{1F64F}]/gu, '')
+      .replace(/[\u{1F680}-\u{1F6FF}]/gu, '')
+      .replace(/[\u{2600}-\u{26FF}]/gu, '')
+      .replace(/[\u{2700}-\u{27BF}]/gu, '')
+      .replace(/[•·▪▫◦‣⁃‾]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toLowerCase();
   }
 
   /**

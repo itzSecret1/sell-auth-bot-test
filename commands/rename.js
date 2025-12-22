@@ -61,6 +61,16 @@ export default {
         const ticket = TicketManager.getTicketByChannel(channel.id);
         const channelType = ticket ? 'Ticket' : 'Channel';
         
+        // Verificar si el nombre contiene "done" y mover a categoría "Done"
+        if (ticket && (cleanedName.includes('done') || cleanedName.includes('✅'))) {
+          try {
+            await TicketManager.moveTicketToDoneCategory(interaction.guild, ticket.id, channel);
+            console.log(`[RENAME] ✅ Ticket ${ticket.id} moved to "Done" category after rename`);
+          } catch (moveError) {
+            console.error(`[RENAME] ⚠️ Error moving ticket to Done category:`, moveError.message);
+          }
+        }
+        
         const embed = new EmbedBuilder()
           .setColor(0x00ff00)
           .setTitle(`✅ ${channelType} Renamed`)

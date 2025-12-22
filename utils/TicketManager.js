@@ -1727,6 +1727,84 @@ export class TicketManager {
   }
 
   /**
+   * Mover un ticket a la categoría "Done" automáticamente
+   */
+  static async moveTicketToDoneCategory(guild, ticketId, channel) {
+    try {
+      // Recargar tickets
+      loadTickets();
+      
+      // Buscar ticket
+      let ticket = ticketsData.tickets[ticketId];
+      if (!ticket) {
+        ticket = this.getTicket(ticketId);
+      }
+      
+      if (!ticket) {
+        console.error(`[TICKET] moveTicketToDoneCategory: Ticket not found: ${ticketId}`);
+        return;
+      }
+      
+      // Buscar o crear categoría "Done"
+      await guild.channels.fetch().catch(() => {});
+      const allCategories = guild.channels.cache.filter(c => c.type === ChannelType.GuildCategory);
+      
+      // Buscar categoría "Done" o "Done Ticket"
+      let doneCategory = null;
+      const doneKeywords = ['done', 'done ticket', 'completed', 'finished'];
+      
+      // Primero: búsqueda exacta normalizada
+      for (const cat of allCategories.values()) {
+        const normalized = normalizeCategoryName(cat.name);
+        if (normalized === 'done' || normalized === 'done ticket') {
+          doneCategory = cat;
+          console.log(`[TICKET] ✅ Found "Done" category: ${cat.name} (ID: ${cat.id})`);
+          break;
+        }
+      }
+      
+      // Segundo: búsqueda por palabra clave
+      if (!doneCategory) {
+        for (const cat of allCategories.values()) {
+          const normalized = normalizeCategoryName(cat.name);
+          if (doneKeywords.some(keyword => normalized.includes(keyword))) {
+            doneCategory = cat;
+            console.log(`[TICKET] ✅ Found "Done" category by keyword: ${cat.name} (ID: ${cat.id})`);
+            break;
+          }
+        }
+      }
+      
+      // Si no existe, crear categoría "Done Ticket"
+      if (!doneCategory) {
+        console.log(`[TICKET] Creating "Done Ticket" category...`);
+        doneCategory = await guild.channels.create({
+          name: 'Done Ticket',
+          type: ChannelType.GuildCategory,
+          permissionOverwrites: [
+            {
+              id: guild.id,
+              deny: [PermissionFlagsBits.ViewChannel]
+            }
+          ]
+        });
+        console.log(`[TICKET] ✅ Created "Done Ticket" category (ID: ${doneCategory.id})`);
+      }
+      
+      // Mover el canal a la categoría "Done"
+      if (channel.parentId !== doneCategory.id) {
+        await channel.setParent(doneCategory.id, { lockPermissions: false });
+        console.log(`[TICKET] ✅ Moved ticket ${ticketId} to "Done" category`);
+      } else {
+        console.log(`[TICKET] ℹ️ Ticket ${ticketId} already in "Done" category`);
+      }
+    } catch (error) {
+      console.error(`[TICKET] ❌ Error moving ticket to Done category:`, error);
+      throw error;
+    }
+  }
+
+  /**
    * Recuperar tickets al iniciar el bot - verificar que los canales existan
    */
   static async recoverTickets(guild) {
