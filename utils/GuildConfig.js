@@ -2,10 +2,16 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import { dirname } from 'path';
 
 // Usar directorio de datos persistente si está configurado (para Railway Volumes)
-const DATA_DIR = process.env.DATA_DIR || './';
+// En Railway, usar /data si existe, sino usar el directorio actual
+const DATA_DIR = process.env.DATA_DIR || (existsSync('/data') ? '/data' : './');
 const GUILD_CONFIG_FILE = DATA_DIR.endsWith('/') 
   ? `${DATA_DIR}guildConfigs.json`
   : `${DATA_DIR}/guildConfigs.json`;
+
+// Logging de la ruta del archivo para diagnóstico
+console.log(`[GUILD CONFIG] 📁 Config file path: ${GUILD_CONFIG_FILE}`);
+console.log(`[GUILD CONFIG] 📁 DATA_DIR: ${DATA_DIR}`);
+console.log(`[GUILD CONFIG] 📁 Absolute path: ${resolve(GUILD_CONFIG_FILE)}`);
 
 // Asegurar que el directorio existe
 try {
@@ -13,6 +19,8 @@ try {
   if (configDir !== '.' && !existsSync(configDir)) {
     mkdirSync(configDir, { recursive: true });
     console.log(`[GUILD CONFIG] ✅ Created data directory: ${configDir}`);
+  } else if (configDir !== '.') {
+    console.log(`[GUILD CONFIG] ✅ Data directory exists: ${configDir}`);
   }
 } catch (error) {
   console.warn(`[GUILD CONFIG] ⚠️ Could not create data directory: ${error.message}`);
@@ -26,13 +34,21 @@ function loadGuildConfigs() {
     if (existsSync(GUILD_CONFIG_FILE)) {
       const data = readFileSync(GUILD_CONFIG_FILE, 'utf-8');
       guildConfigs = JSON.parse(data);
-      console.log(`[GUILD CONFIG] ✅ Loaded ${Object.keys(guildConfigs).length} server configuration(s)`);
+      const guildCount = Object.keys(guildConfigs).length;
+      console.log(`[GUILD CONFIG] ✅ Loaded ${guildCount} server configuration(s) from ${GUILD_CONFIG_FILE}`);
+      
+      // Mostrar detalles de cada configuración cargada
+      if (guildCount > 0) {
+        for (const [guildId, config] of Object.entries(guildConfigs)) {
+          console.log(`[GUILD CONFIG]   - Guild ${guildId}: ${config.guildName || 'Unknown'} (Admin: ${config.adminRoleId || 'Not set'})`);
+        }
+      }
     } else {
-      console.log('[GUILD CONFIG] No existing config file found, starting fresh');
+      console.log(`[GUILD CONFIG] ⚠️ No existing config file found at ${GUILD_CONFIG_FILE}, starting fresh`);
       guildConfigs = {};
     }
   } catch (error) {
-    console.error('[GUILD CONFIG] ❌ Error loading:', error);
+    console.error(`[GUILD CONFIG] ❌ Error loading from ${GUILD_CONFIG_FILE}:`, error);
     guildConfigs = {};
   }
 }
@@ -60,7 +76,12 @@ function saveGuildConfigs() {
       if (existsSync(GUILD_CONFIG_FILE)) {
         const savedData = readFileSync(GUILD_CONFIG_FILE, 'utf-8');
         if (savedData === data) {
-          console.log(`[GUILD CONFIG] ✅ Configuration saved successfully (${Object.keys(guildConfigs).length} server(s)) on attempt ${attempt}`);
+          const fileSize = savedData.length;
+          const guildCount = Object.keys(guildConfigs).length;
+          console.log(`[GUILD CONFIG] ✅ Configuration saved successfully to ${GUILD_CONFIG_FILE}`);
+          console.log(`[GUILD CONFIG]   - File size: ${fileSize} bytes`);
+          console.log(`[GUILD CONFIG]   - Servers configured: ${guildCount}`);
+          console.log(`[GUILD CONFIG]   - Attempt: ${attempt}/${maxRetries}`);
           return true;
         } else {
           lastError = new Error('Saved data does not match expected data');
@@ -70,9 +91,9 @@ function saveGuildConfigs() {
           }
         }
       } else {
-        lastError = new Error('Config file was not created');
+        lastError = new Error(`Config file was not created at ${GUILD_CONFIG_FILE}`);
         if (attempt < maxRetries) {
-          console.warn(`[GUILD CONFIG] ⚠️ Attempt ${attempt} failed: File not created. Retrying...`);
+          console.warn(`[GUILD CONFIG] ⚠️ Attempt ${attempt} failed: File not created at ${GUILD_CONFIG_FILE}. Retrying...`);
           continue;
         }
       }
