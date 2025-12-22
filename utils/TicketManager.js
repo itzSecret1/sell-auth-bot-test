@@ -63,13 +63,59 @@ export class TicketManager {
       const ticketId = `TKT-${String(ticketsData.nextId).padStart(4, '0')}`;
       const categoryName = category.charAt(0).toUpperCase() + category.slice(1).replace('_', ' ');
       
-      // Buscar o crear categoría
-      let ticketCategory = guild.channels.cache.find(
-        c => c.type === ChannelType.GuildCategory && 
-        c.name.toLowerCase() === categoryName.toLowerCase()
-      );
-
+      // Buscar o crear categoría - MEJORADO para evitar duplicados
+      // Primero intentar usar categoría configurada en setup si existe
+      const guildConfig = GuildConfig.getConfig(guild.id);
+      let ticketCategory = null;
+      
+      // Si hay una categoría de verificación configurada y es para tickets, usarla
+      if (guildConfig?.verificationCategoryId) {
+        const configCategory = await guild.channels.fetch(guildConfig.verificationCategoryId).catch(() => null);
+        if (configCategory && configCategory.type === ChannelType.GuildCategory) {
+          ticketCategory = configCategory;
+          console.log(`[TICKET] Using configured category: ${ticketCategory.name}`);
+        }
+      }
+      
+      // Si no hay categoría configurada, buscar en todas las categorías del servidor
       if (!ticketCategory) {
+        // Actualizar caché primero para asegurar que tenemos todas las categorías
+        await guild.channels.fetch().catch(() => {});
+        
+        // Buscar categoría existente con nombre normalizado (case-insensitive, sin espacios extra)
+        const normalizedCategoryName = categoryName.toLowerCase().trim();
+        ticketCategory = guild.channels.cache.find(
+          c => c.type === ChannelType.GuildCategory && 
+          c.name.toLowerCase().trim() === normalizedCategoryName
+        );
+        
+        // Si aún no se encuentra, buscar variaciones comunes
+        if (!ticketCategory) {
+          // Buscar con diferentes variaciones de formato
+          const variations = [
+            categoryName,
+            categoryName.toLowerCase(),
+            categoryName.toUpperCase(),
+            category.charAt(0).toUpperCase() + category.slice(1).toLowerCase(),
+            category.replace('_', ' ').charAt(0).toUpperCase() + category.replace('_', ' ').slice(1).toLowerCase()
+          ];
+          
+          for (const variation of variations) {
+            ticketCategory = guild.channels.cache.find(
+              c => c.type === ChannelType.GuildCategory && 
+              c.name.toLowerCase().trim() === variation.toLowerCase().trim()
+            );
+            if (ticketCategory) {
+              console.log(`[TICKET] Found category with variation: ${ticketCategory.name}`);
+              break;
+            }
+          }
+        }
+      }
+
+      // Si aún no existe, crear la categoría
+      if (!ticketCategory) {
+        console.log(`[TICKET] Creating new category: ${categoryName}`);
         ticketCategory = await guild.channels.create({
           name: categoryName,
           type: ChannelType.GuildCategory,
@@ -90,10 +136,11 @@ export class TicketManager {
             }
           ]
         });
+      } else {
+        console.log(`[TICKET] Using existing category: ${ticketCategory.name} (ID: ${ticketCategory.id})`);
       }
 
-      // Obtener configuración del servidor
-      const guildConfig = GuildConfig.getConfig(guild.id);
+      // Obtener configuración del servidor (ya cargada arriba, reutilizar)
       const staffRoleId = guildConfig?.staffRoleId;
       const adminRoleId = guildConfig?.adminRoleId;
 
