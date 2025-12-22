@@ -76,8 +76,12 @@ function normalizeCategoryName(name) {
     .replace(/[\u{FE00}-\u{FE0F}]/gu, '')
     // Eliminar marcas de combinación cero ancho (para emojis compuestos)
     .replace(/[\u{200D}]/gu, '')
-    // Eliminar otros caracteres especiales comunes (bullet points, etc.)
-    .replace(/[•·▪▫]/g, '')
+    // Eliminar símbolos de moneda y caracteres especiales comunes
+    .replace(/[$€£¥₹₽¢]/g, '')
+    // Eliminar bullet points y caracteres especiales
+    .replace(/[•·▪▫◦‣⁃‾]/g, '')
+    // Eliminar otros símbolos comunes
+    .replace(/[→←↑↓↔]/g, '')
     // Eliminar espacios múltiples
     .replace(/\s+/g, ' ')
     // Trim espacios al inicio y final
@@ -127,21 +131,39 @@ export class TicketManager {
         
         // Normalizar el nombre de categoría esperado (sin emojis, stickers, etc.)
         const normalizedExpectedName = normalizeCategoryName(categoryName);
-        console.log(`[TICKET] Searching for category with normalized name: "${normalizedExpectedName}" (original: "${categoryName}")`);
+        // Extraer palabra clave principal (primera palabra significativa)
+        const categoryKeyword = category.toLowerCase().trim();
+        console.log(`[TICKET] Searching for category with normalized name: "${normalizedExpectedName}" (keyword: "${categoryKeyword}") (original: "${categoryName}")`);
         
-        // Buscar categoría existente comparando nombres normalizados (ignora emojis/stickers)
+        // Primero: Buscar categoría existente comparando nombres normalizados (ignora emojis/stickers)
         ticketCategory = guild.channels.cache.find(c => {
           if (c.type !== ChannelType.GuildCategory) return false;
           const normalizedExistingName = normalizeCategoryName(c.name);
           const matches = normalizedExistingName === normalizedExpectedName;
           if (matches) {
-            console.log(`[TICKET] Found category by normalized name: "${c.name}" (normalized: "${normalizedExistingName}")`);
+            console.log(`[TICKET] ✅ Found category by exact normalized match: "${c.name}" (normalized: "${normalizedExistingName}")`);
           }
           return matches;
         });
         
-        // Si aún no se encuentra, buscar variaciones comunes (también normalizadas)
+        // Segundo: Si no se encuentra, buscar por palabra clave (más flexible)
         if (!ticketCategory) {
+          console.log(`[TICKET] No exact match found, searching by keyword: "${categoryKeyword}"`);
+          ticketCategory = guild.channels.cache.find(c => {
+            if (c.type !== ChannelType.GuildCategory) return false;
+            const normalizedExistingName = normalizeCategoryName(c.name);
+            // Buscar si el nombre normalizado contiene la palabra clave
+            const containsKeyword = normalizedExistingName.includes(categoryKeyword) || categoryKeyword.includes(normalizedExistingName);
+            if (containsKeyword) {
+              console.log(`[TICKET] ✅ Found category by keyword match: "${c.name}" (normalized: "${normalizedExistingName}") contains "${categoryKeyword}"`);
+            }
+            return containsKeyword;
+          });
+        }
+        
+        // Tercero: Si aún no se encuentra, buscar variaciones comunes (también normalizadas)
+        if (!ticketCategory) {
+          console.log(`[TICKET] No keyword match found, trying variations...`);
           // Buscar con diferentes variaciones de formato (todas normalizadas)
           const variations = [
             categoryName,
@@ -155,13 +177,29 @@ export class TicketManager {
             const normalizedVariation = normalizeCategoryName(variation);
             ticketCategory = guild.channels.cache.find(c => {
               if (c.type !== ChannelType.GuildCategory) return false;
-              return normalizeCategoryName(c.name) === normalizedVariation;
+              const normalizedExistingName = normalizeCategoryName(c.name);
+              const matches = normalizedExistingName === normalizedVariation || 
+                             normalizedExistingName.includes(normalizedVariation) ||
+                             normalizedVariation.includes(normalizedExistingName);
+              if (matches) {
+                console.log(`[TICKET] ✅ Found category with variation: "${c.name}" (normalized: "${normalizedExistingName}") matches "${normalizedVariation}"`);
+              }
+              return matches;
             });
             if (ticketCategory) {
-              console.log(`[TICKET] Found category with variation: "${ticketCategory.name}" (normalized: "${normalizeCategoryName(ticketCategory.name)}")`);
               break;
             }
           }
+        }
+        
+        // Log todas las categorías disponibles para debugging
+        if (!ticketCategory) {
+          const allCategories = guild.channels.cache.filter(c => c.type === ChannelType.GuildCategory);
+          console.log(`[TICKET] ⚠️ No matching category found. Available categories:`);
+          allCategories.forEach(cat => {
+            const normalized = normalizeCategoryName(cat.name);
+            console.log(`[TICKET]   - "${cat.name}" (normalized: "${normalized}")`);
+          });
         }
       }
 
