@@ -1561,36 +1561,64 @@ export class Bot {
       const guild = interaction.guild;
       const user = interaction.user;
       
-      const result = await TicketManager.createTicket(guild, user, 'replaces', cleanInvoiceId);
-      
-      // Mensaje después de crear el ticket pidiendo prueba
-      const proofEmbed = new EmbedBuilder()
-        .setColor(0x00ff00)
-        .setTitle('✅ Replace Ticket Created')
-        .setDescription(`Ticket **${result.ticketId}** has been created successfully!`)
-        .addFields(
-          {
-            name: '📋 Invoice ID',
-            value: `\`${cleanInvoiceId}\``,
-            inline: true
-          },
-          {
-            name: '📁 Channel',
-            value: `${result.channel}`,
-            inline: true
-          },
-          {
-            name: '📸 Next Steps',
-            value: '**Please upload proof images showing:**\n• The error message you\'re seeing\n• Screenshot of the account not working\n• Any relevant error details\n\nOur team will process your replacement request shortly.',
-            inline: false
-          }
-        )
-        .setFooter({ text: 'Shop System' })
-        .setTimestamp();
-      
-      await interaction.editReply({
-        embeds: [proofEmbed]
-      });
+      try {
+        const result = await TicketManager.createTicket(guild, user, 'replaces', cleanInvoiceId);
+        
+        // Mensaje después de crear el ticket pidiendo prueba
+        const proofEmbed = new EmbedBuilder()
+          .setColor(0x00ff00)
+          .setTitle('✅ Replace Ticket Created')
+          .setDescription(`Ticket **${result.ticketId}** has been created successfully!`)
+          .addFields(
+            {
+              name: '📋 Invoice ID',
+              value: `\`${cleanInvoiceId}\``,
+              inline: true
+            },
+            {
+              name: '📁 Channel',
+              value: `${result.channel}`,
+              inline: true
+            },
+            {
+              name: '📸 Next Steps',
+              value: '**Please upload proof images showing:**\n• The error message you\'re seeing\n• Screenshot of the account not working\n• Any relevant error details\n\nOur team will process your replacement request shortly.',
+              inline: false
+            }
+          )
+          .setFooter({ text: 'Shop System' })
+          .setTimestamp();
+        
+        await interaction.editReply({
+          embeds: [proofEmbed]
+        });
+      } catch (error) {
+        console.error(`[TICKET-MODAL] Error creating ticket:`, error);
+        
+        // Manejar errores específicos
+        let errorMessage = '❌ An error occurred while creating your ticket.';
+        
+        if (error.message && error.message.includes('already have an open ticket')) {
+          errorMessage = '❌ You already have an open ticket. Please close it before creating a new one.';
+        } else if (error.message && error.message.includes('No category found')) {
+          errorMessage = '❌ Ticket category not configured. Please contact an administrator.';
+        } else if (error.message && error.message.includes('Missing permissions')) {
+          errorMessage = '❌ Bot is missing required permissions. Please contact an administrator.';
+        } else if (error.message) {
+          errorMessage = `❌ ${error.message}`;
+        }
+        
+        const errorEmbed = new EmbedBuilder()
+          .setColor(0xff0000)
+          .setTitle('❌ Error Creating Ticket')
+          .setDescription(errorMessage)
+          .setFooter({ text: 'If this problem persists, contact support staff' })
+          .setTimestamp();
+        
+        await interaction.editReply({
+          embeds: [errorEmbed]
+        });
+      }
       return;
     }
 
