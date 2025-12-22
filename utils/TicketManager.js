@@ -84,28 +84,6 @@ export class TicketManager {
             }
           ]
         });
-      } else {
-        // Si la categoría ya existe, dar permisos al usuario en la categoría
-        // Esto permite que vea todos los tickets en esa categoría
-        try {
-          await ticketCategory.permissionOverwrites.edit(user.id, {
-            ViewChannel: true,
-            SendMessages: true
-          });
-          console.log(`[TICKET] ✅ Granted category permissions to user ${user.tag} (${user.id}) for category ${categoryName}`);
-        } catch (error) {
-          console.error(`[TICKET] ⚠️ Error updating category permissions for user ${user.id}:`, error);
-          // Si falla, intentar crear el overwrite
-          try {
-            await ticketCategory.permissionOverwrites.create(user.id, {
-              ViewChannel: true,
-              SendMessages: true
-            });
-            console.log(`[TICKET] ✅ Created category permissions for user ${user.tag} (${user.id})`);
-          } catch (createError) {
-            console.error(`[TICKET] ❌ Error creating category permissions for user ${user.id}:`, createError);
-          }
-        }
       }
 
       // Obtener configuración del servidor
@@ -155,50 +133,6 @@ export class TicketManager {
         parent: ticketCategory.id,
         permissionOverwrites: permissionOverwrites
       });
-
-      // IMPORTANTE: Asegurar que todos los usuarios que han creado tickets en esta categoría
-      // puedan ver este nuevo ticket. Buscar todos los tickets de esta categoría y dar permisos.
-      try {
-        const allTicketsInCategory = Object.values(ticketsData.tickets).filter(
-          t => t.category && t.category.toLowerCase() === categoryName.toLowerCase() && !t.closed
-        );
-        
-        // Obtener todos los usuarios únicos que han creado tickets en esta categoría
-        const usersInCategory = new Set();
-        for (const ticket of allTicketsInCategory) {
-          if (ticket.userId) {
-            usersInCategory.add(ticket.userId);
-          }
-        }
-        
-        // Dar permisos a todos estos usuarios en el nuevo canal
-        for (const userId of usersInCategory) {
-          if (userId !== user.id) { // Ya tiene permisos del permissionOverwrites inicial
-            try {
-              await ticketChannel.permissionOverwrites.edit(userId, {
-                ViewChannel: true,
-                SendMessages: true,
-                ReadMessageHistory: true
-              });
-              console.log(`[TICKET] ✅ Granted permissions to existing category user ${userId} in new ticket channel`);
-            } catch (permError) {
-              // Si no existe el overwrite, crearlo
-              try {
-                await ticketChannel.permissionOverwrites.create(userId, {
-                  ViewChannel: true,
-                  SendMessages: true,
-                  ReadMessageHistory: true
-                });
-                console.log(`[TICKET] ✅ Created permissions for existing category user ${userId} in new ticket channel`);
-              } catch (createError) {
-                console.error(`[TICKET] ⚠️ Could not grant permissions to user ${userId}:`, createError.message);
-              }
-            }
-          }
-        }
-      } catch (error) {
-        console.error(`[TICKET] ⚠️ Error granting permissions to category users:`, error);
-      }
 
       // Crear embed del ticket
       const ticketEmbed = new EmbedBuilder()
