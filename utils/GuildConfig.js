@@ -1,5 +1,5 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
-import { dirname } from 'path';
+import { dirname, resolve } from 'path';
 
 // Usar directorio de datos persistente si está configurado (para Railway Volumes)
 // En Railway, usar /data si existe, sino usar el directorio actual
