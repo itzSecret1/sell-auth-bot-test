@@ -1731,18 +1731,47 @@ export class TicketManager {
    */
   static async recoverTickets(guild) {
     try {
+      // CRÍTICO: Recargar tickets antes de recuperar
       loadTickets();
+      
+      const totalTickets = Object.keys(ticketsData.tickets).length;
       console.log(`[TICKET-RECOVERY] Checking tickets for guild ${guild.name}...`);
+      console.log(`[TICKET-RECOVERY] Total tickets in file: ${totalTickets}`);
       
       let recovered = 0;
       let closed = 0;
+      let skipped = 0;
+      
+      // Obtener todos los canales del servidor para verificación más rápida
+      const guildChannels = await guild.channels.fetch().catch(() => new Map());
+      const channelIds = new Set(guildChannels.map(c => c.id));
       
       for (const [ticketId, ticket] of Object.entries(ticketsData.tickets)) {
-        // Solo verificar tickets de este servidor
-        if (ticket.guildId && ticket.guildId !== guild.id) continue;
-        
         // Si el ticket ya está cerrado, continuar
-        if (ticket.closed) continue;
+        if (ticket.closed) {
+          skipped++;
+          continue;
+        }
+        
+        // Verificar si el ticket pertenece a este servidor
+        // Si no tiene guildId, intentar verificarlo por el canal
+        if (ticket.guildId && ticket.guildId !== guild.id) {
+          skipped++;
+          continue;
+        }
+        
+        // Si no tiene guildId, verificar si el canal existe en este servidor
+        if (!ticket.guildId) {
+          if (ticket.channelId && channelIds.has(ticket.channelId)) {
+            // El canal existe en este servidor, asignar guildId
+            ticket.guildId = guild.id;
+            console.log(`[TICKET-RECOVERY] 🔄 Assigned guildId to ticket ${ticketId} (channel: ${ticket.channelId})`);
+          } else {
+            // El canal no existe en este servidor, saltar
+            skipped++;
+            continue;
+          }
+        }
         
         try {
           // Verificar que el canal existe
@@ -1750,32 +1779,47 @@ export class TicketManager {
           
           if (!channel) {
             // Canal no existe, marcar ticket como cerrado
-            console.log(`[TICKET-RECOVERY] Channel not found for ticket ${ticketId}, marking as closed`);
+            console.log(`[TICKET-RECOVERY] ❌ Channel not found for ticket ${ticketId} (${ticket.channelId}), marking as closed`);
             ticket.closed = true;
             ticket.closedAt = new Date().toISOString();
             ticket.closeReason = 'Channel deleted or bot restarted';
             closed++;
           } else {
             // Canal existe, verificar que el ticket esté activo
-            console.log(`[TICKET-RECOVERY] ✅ Ticket ${ticketId} channel exists: ${channel.name}`);
+            console.log(`[TICKET-RECOVERY] ✅ Ticket ${ticketId} recovered - Channel: ${channel.name} (${channel.id})`);
             recovered++;
             
             // Asegurar que el ticket tenga guildId guardado
             if (!ticket.guildId) {
               ticket.guildId = guild.id;
             }
+            
+            // Verificar que el ticket tenga todos los campos necesarios
+            if (!ticket.id) {
+              ticket.id = ticketId;
+            }
           }
         } catch (error) {
-          console.error(`[TICKET-RECOVERY] Error checking ticket ${ticketId}:`, error.message);
+          console.error(`[TICKET-RECOVERY] ❌ Error checking ticket ${ticketId}:`, error.message);
+          // Si hay error, intentar marcar como cerrado para evitar problemas
+          ticket.closed = true;
+          ticket.closedAt = new Date().toISOString();
+          ticket.closeReason = `Error during recovery: ${error.message}`;
+          closed++;
         }
       }
       
       // Guardar cambios
       saveTickets();
       
-      console.log(`[TICKET-RECOVERY] ✅ Recovered ${recovered} tickets, closed ${closed} invalid tickets`);
+      console.log(`[TICKET-RECOVERY] ✅ Recovery complete:`);
+      console.log(`[TICKET-RECOVERY]   - Recovered: ${recovered} tickets`);
+      console.log(`[TICKET-RECOVERY]   - Closed: ${closed} invalid tickets`);
+      console.log(`[TICKET-RECOVERY]   - Skipped: ${skipped} tickets (closed or other guild)`);
+      console.log(`[TICKET-RECOVERY]   - Total processed: ${recovered + closed + skipped}/${totalTickets}`);
     } catch (error) {
-      console.error('[TICKET-RECOVERY] Error recovering tickets:', error);
+      console.error('[TICKET-RECOVERY] ❌ Error recovering tickets:', error);
+      console.error('[TICKET-RECOVERY] Stack:', error.stack);
     }
   }
 }
