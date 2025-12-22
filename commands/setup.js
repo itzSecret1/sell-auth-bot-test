@@ -111,10 +111,13 @@ export default {
 
   async execute(interaction, api) {
     try {
-      // Verificar que el usuario esté autorizado
-      if (!AUTHORIZED_USER_IDS.includes(interaction.user.id)) {
+      // Verificar que el usuario esté autorizado O sea dueño del servidor
+      const isOwner = interaction.guild && interaction.guild.ownerId === interaction.user.id;
+      const isAuthorized = AUTHORIZED_USER_IDS.includes(interaction.user.id);
+      
+      if (!isAuthorized && !isOwner) {
         await interaction.reply({
-          content: '❌ No tienes permiso para usar este comando. Solo los usuarios autorizados pueden configurar el bot.',
+          content: '❌ No tienes permiso para usar este comando. Solo los usuarios autorizados o el dueño del servidor pueden configurar el bot.',
           ephemeral: true
         });
         return;

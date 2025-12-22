@@ -55,23 +55,30 @@ function loadGuildConfigs() {
     const backupData = process.env[RAILWAY_ENV_BACKUP_KEY];
     if (backupData) {
       try {
-        guildConfigs = JSON.parse(backupData);
-        const guildCount = Object.keys(guildConfigs).length;
-        console.log(`[GUILD CONFIG] ✅ Loaded ${guildCount} server configuration(s) from environment backup`);
-        
-        // Restaurar al archivo para futuras cargas
-        if (guildCount > 0) {
-          saveGuildConfigs();
-          console.log(`[GUILD CONFIG] ✅ Restored configuration from backup to file`);
-        }
-        
-        // Mostrar detalles
-        if (guildCount > 0) {
-          for (const [guildId, config] of Object.entries(guildConfigs)) {
-            console.log(`[GUILD CONFIG]   - Guild ${guildId}: ${config.guildName || 'Unknown'} (Admin: ${config.adminRoleId || 'Not set'})`);
+        const parsed = JSON.parse(backupData);
+        if (parsed && typeof parsed === 'object') {
+          guildConfigs = parsed;
+          const guildCount = Object.keys(guildConfigs).length;
+          console.log(`[GUILD CONFIG] ✅ Loaded ${guildCount} server configuration(s) from environment backup`);
+          
+          // Restaurar al archivo para futuras cargas
+          if (guildCount > 0) {
+            const saved = saveGuildConfigs();
+            if (saved) {
+              console.log(`[GUILD CONFIG] ✅ Restored configuration from backup to file`);
+            } else {
+              console.warn(`[GUILD CONFIG] ⚠️ Could not save restored configuration to file`);
+            }
           }
+          
+          // Mostrar detalles
+          if (guildCount > 0) {
+            for (const [guildId, config] of Object.entries(guildConfigs)) {
+              console.log(`[GUILD CONFIG]   - Guild ${guildId}: ${config.guildName || 'Unknown'} (Admin: ${config.adminRoleId || 'Not set'})`);
+            }
+          }
+          return;
         }
-        return;
       } catch (parseError) {
         console.warn(`[GUILD CONFIG] ⚠️ Failed to parse backup data: ${parseError.message}`);
       }
