@@ -1,6 +1,22 @@
-import { readFileSync, writeFileSync, existsSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
+import { dirname } from 'path';
 
-const GUILD_CONFIG_FILE = './guildConfigs.json';
+// Usar directorio de datos persistente si está configurado (para Railway Volumes)
+const DATA_DIR = process.env.DATA_DIR || './';
+const GUILD_CONFIG_FILE = DATA_DIR.endsWith('/') 
+  ? `${DATA_DIR}guildConfigs.json`
+  : `${DATA_DIR}/guildConfigs.json`;
+
+// Asegurar que el directorio existe
+try {
+  const configDir = dirname(GUILD_CONFIG_FILE);
+  if (configDir !== '.' && !existsSync(configDir)) {
+    mkdirSync(configDir, { recursive: true });
+    console.log(`[GUILD CONFIG] ✅ Created data directory: ${configDir}`);
+  }
+} catch (error) {
+  console.warn(`[GUILD CONFIG] ⚠️ Could not create data directory: ${error.message}`);
+}
 
 let guildConfigs = {};
 
