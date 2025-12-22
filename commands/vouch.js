@@ -1,7 +1,8 @@
-import { SlashCommandBuilder, EmbedBuilder } from 'discord.js';
+import { SlashCommandBuilder, EmbedBuilder, MessageFlags } from 'discord.js';
 import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { AdvancedCommandLogger } from '../utils/advancedCommandLogger.js';
 import { config } from '../utils/config.js';
+import { GuildConfig } from '../utils/GuildConfig.js';
 
 const VOUCHES_FILE = './vouches.json';
 
@@ -57,6 +58,25 @@ export default {
 
   async execute(interaction, api) {
     try {
+      // Verificar si el comando se está usando en el canal correcto
+      const guildConfig = GuildConfig.getConfig(interaction.guild.id);
+      const vouchesChannelId = guildConfig?.vouchesChannelId;
+      
+      if (vouchesChannelId) {
+        // Si hay un canal configurado, solo permitir usarlo ahí
+        if (interaction.channel.id !== vouchesChannelId) {
+          const vouchesChannel = interaction.guild.channels.cache.get(vouchesChannelId);
+          const channelMention = vouchesChannel ? `<#${vouchesChannelId}>` : `el canal configurado`;
+          
+          await interaction.reply({
+            content: `❌ **Canal incorrecto**\n\nEl comando \`/vouch\` solo puede usarse en ${channelMention}.\n\nPor favor, ve a ese canal para crear tu vouch.`,
+            flags: MessageFlags.Ephemeral
+          });
+          return;
+        }
+      }
+      // Si no hay canal configurado, permitir uso en cualquier canal (comportamiento anterior)
+
       await interaction.deferReply({ ephemeral: false });
 
       const message = interaction.options.getString('message');
