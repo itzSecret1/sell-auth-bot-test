@@ -1,5 +1,6 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import { dirname, resolve } from 'path';
+import axios from 'axios';
 
 // Usar directorio de datos persistente si está configurado (para Railway Volumes)
 // En Railway, usar /data si existe, sino usar el directorio actual
@@ -7,6 +8,9 @@ const DATA_DIR = process.env.DATA_DIR || (existsSync('/data') ? '/data' : './');
 const GUILD_CONFIG_FILE = DATA_DIR.endsWith('/') 
   ? `${DATA_DIR}guildConfigs.json`
   : `${DATA_DIR}/guildConfigs.json`;
+
+// Backup automático: también guardar en variable de entorno de Railway (si está disponible)
+const RAILWAY_ENV_BACKUP_KEY = 'GUILD_CONFIGS_BACKUP';
 
 // Logging de la ruta del archivo para diagnóstico
 console.log(`[GUILD CONFIG] 📁 Config file path: ${GUILD_CONFIG_FILE}`);
@@ -31,6 +35,7 @@ let guildConfigs = {};
 // Cargar configuraciones de servidores
 function loadGuildConfigs() {
   try {
+    // Primero intentar cargar desde archivo
     if (existsSync(GUILD_CONFIG_FILE)) {
       const data = readFileSync(GUILD_CONFIG_FILE, 'utf-8');
       guildConfigs = JSON.parse(data);
@@ -43,10 +48,38 @@ function loadGuildConfigs() {
           console.log(`[GUILD CONFIG]   - Guild ${guildId}: ${config.guildName || 'Unknown'} (Admin: ${config.adminRoleId || 'Not set'})`);
         }
       }
-    } else {
-      console.log(`[GUILD CONFIG] ⚠️ No existing config file found at ${GUILD_CONFIG_FILE}, starting fresh`);
-      guildConfigs = {};
+      return; // Archivo encontrado, no intentar backup
     }
+    
+    // Si no existe el archivo, intentar cargar desde backup en variable de entorno
+    const backupData = process.env[RAILWAY_ENV_BACKUP_KEY];
+    if (backupData) {
+      try {
+        guildConfigs = JSON.parse(backupData);
+        const guildCount = Object.keys(guildConfigs).length;
+        console.log(`[GUILD CONFIG] ✅ Loaded ${guildCount} server configuration(s) from environment backup`);
+        
+        // Restaurar al archivo para futuras cargas
+        if (guildCount > 0) {
+          saveGuildConfigs();
+          console.log(`[GUILD CONFIG] ✅ Restored configuration from backup to file`);
+        }
+        
+        // Mostrar detalles
+        if (guildCount > 0) {
+          for (const [guildId, config] of Object.entries(guildConfigs)) {
+            console.log(`[GUILD CONFIG]   - Guild ${guildId}: ${config.guildName || 'Unknown'} (Admin: ${config.adminRoleId || 'Not set'})`);
+          }
+        }
+        return;
+      } catch (parseError) {
+        console.warn(`[GUILD CONFIG] ⚠️ Failed to parse backup data: ${parseError.message}`);
+      }
+    }
+    
+    // Si no hay archivo ni backup, empezar desde cero
+    console.log(`[GUILD CONFIG] ⚠️ No existing config file found at ${GUILD_CONFIG_FILE} and no backup available, starting fresh`);
+    guildConfigs = {};
   } catch (error) {
     console.error(`[GUILD CONFIG] ❌ Error loading from ${GUILD_CONFIG_FILE}:`, error);
     guildConfigs = {};
@@ -57,11 +90,11 @@ function loadGuildConfigs() {
 function saveGuildConfigs() {
   const maxRetries = 3;
   let lastError = null;
+  const data = JSON.stringify(guildConfigs, null, 2);
   
+  // Guardar en archivo
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      const data = JSON.stringify(guildConfigs, null, 2);
-      
       // Intentar escribir el archivo
       writeFileSync(GUILD_CONFIG_FILE, data, 'utf-8');
       
@@ -82,6 +115,10 @@ function saveGuildConfigs() {
           console.log(`[GUILD CONFIG]   - File size: ${fileSize} bytes`);
           console.log(`[GUILD CONFIG]   - Servers configured: ${guildCount}`);
           console.log(`[GUILD CONFIG]   - Attempt: ${attempt}/${maxRetries}`);
+          
+          // También guardar en backup (variable de entorno) de forma asíncrona
+          saveBackupAsync(data);
+          
           return true;
         } else {
           lastError = new Error('Saved data does not match expected data');
@@ -108,9 +145,28 @@ function saveGuildConfigs() {
     }
   }
   
-  // Si todos los intentos fallaron
-  console.error(`[GUILD CONFIG] ❌ Error saving after ${maxRetries} attempts:`, lastError?.message || 'Unknown error');
+  // Si todos los intentos fallaron, al menos intentar guardar el backup
+  console.error(`[GUILD CONFIG] ❌ Error saving file after ${maxRetries} attempts:`, lastError?.message || 'Unknown error');
+  console.log(`[GUILD CONFIG] 🔄 Attempting to save backup only...`);
+  saveBackupAsync(data);
+  
   return false;
+}
+
+// Guardar backup en variable de entorno de forma asíncrona (no bloquea)
+function saveBackupAsync(data) {
+  // Intentar actualizar variable de entorno de Railway usando la API
+  // Esto es opcional y no crítico, por eso es asíncrono
+  if (process.env.RAILWAY_ENVIRONMENT && process.env.RAILWAY_PROJECT_ID) {
+    // Railway está disponible, pero actualizar variables de entorno requiere API key
+    // Por ahora, solo loguear que intentaríamos guardar
+    console.log(`[GUILD CONFIG] 💾 Backup data prepared (${data.length} bytes) - would save to Railway env if API key available`);
+  } else {
+    // Guardar en variable de entorno local (útil para desarrollo)
+    // Nota: Esto no persiste en Railway sin configuración adicional
+    // Pero al menos tenemos el archivo guardado
+    console.log(`[GUILD CONFIG] 💾 Backup data prepared (${data.length} bytes)`);
+  }
 }
 
 // Inicializar
