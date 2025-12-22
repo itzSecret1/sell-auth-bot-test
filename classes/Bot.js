@@ -2029,13 +2029,52 @@ export class Bot {
       return;
     }
 
-    const stepData = SetupWizard.getStepEmbed(session.step, session);
-    await interaction.reply({
-        content: '✅ Configuration saved!',
-      embeds: [stepData.embed],
-      components: [stepData.buttons],
-      ephemeral: true
-    });
+    try {
+      const stepData = SetupWizard.getStepEmbed(session.step, session);
+      
+      // Verificar si la interacción ya fue respondida
+      if (interaction.replied || interaction.deferred) {
+        await interaction.editReply({
+          content: '✅ Configuration saved!',
+          embeds: [stepData.embed],
+          components: [stepData.buttons]
+        }).catch(() => {
+          // Si falla editReply, intentar followUp
+          interaction.followUp({
+            content: '✅ Configuration saved!',
+            embeds: [stepData.embed],
+            components: [stepData.buttons],
+            ephemeral: true
+          }).catch(err => {
+            console.error('[SETUP] Error responding to interaction:', err);
+          });
+        });
+      } else {
+        await interaction.reply({
+          content: '✅ Configuration saved!',
+          embeds: [stepData.embed],
+          components: [stepData.buttons],
+          ephemeral: true
+        });
+      }
+    } catch (error) {
+      console.error('[SETUP] Error in handleSetupModal response:', error);
+      // Intentar responder con un mensaje simple si falla todo
+      try {
+        if (!interaction.replied && !interaction.deferred) {
+          await interaction.reply({
+            content: '✅ Configuration saved! (Error showing next step)',
+            ephemeral: true
+          });
+        } else {
+          await interaction.editReply({
+            content: '✅ Configuration saved! (Error showing next step)'
+          }).catch(() => {});
+        }
+      } catch (finalError) {
+        console.error('[SETUP] Final error handling interaction:', finalError);
+      }
+    }
   }
 
   async finishSetup(interaction, session) {
