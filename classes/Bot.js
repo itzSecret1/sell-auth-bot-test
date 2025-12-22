@@ -1894,31 +1894,45 @@ export class Bot {
       return;
     }
 
+    // Guardar configuración de forma persistente
     const guildConfig = GuildConfig.setConfig(session.guildId, {
       guildId: session.guildId,
       guildName: interaction.guild.name,
       adminRoleId: session.config.adminRoleId,
       staffRoleId: session.config.staffRoleId,
-      customerRoleId: session.config.customerRoleId,
-      logChannelId: session.config.logChannelId,
-      transcriptChannelId: session.config.transcriptChannelId,
-      ratingChannelId: session.config.ratingChannelId,
-      spamChannelId: session.config.spamChannelId,
-      trialAdminRoleId: session.config.trialAdminRoleId,
-      botStatusChannelId: session.config.botStatusChannelId,
-      automodChannelId: session.config.automodChannelId,
-      backupChannelId: session.config.backupChannelId,
-      weeklyReportsChannelId: session.config.weeklyReportsChannelId,
-      acceptChannelId: session.config.acceptChannelId,
-      staffRatingSupportChannelId: session.config.staffRatingSupportChannelId,
-      staffFeedbacksChannelId: session.config.staffFeedbacksChannelId,
-      vouchesChannelId: session.config.vouchesChannelId,
-      verificationChannelId: session.config.verificationChannelId,
-      memberRoleId: session.config.memberRoleId,
-      verificationCategoryId: session.config.verificationCategoryId,
+      customerRoleId: session.config.customerRoleId || null,
+      logChannelId: session.config.logChannelId || null,
+      transcriptChannelId: session.config.transcriptChannelId || null,
+      ratingChannelId: session.config.ratingChannelId || null,
+      spamChannelId: session.config.spamChannelId || null,
+      trialAdminRoleId: session.config.trialAdminRoleId || null,
+      botStatusChannelId: session.config.botStatusChannelId || null,
+      automodChannelId: session.config.automodChannelId || null,
+      backupChannelId: session.config.backupChannelId || null,
+      weeklyReportsChannelId: session.config.weeklyReportsChannelId || null,
+      acceptChannelId: session.config.acceptChannelId || null,
+      staffRatingSupportChannelId: session.config.staffRatingSupportChannelId || null,
+      staffFeedbacksChannelId: session.config.staffFeedbacksChannelId || null,
+      vouchesChannelId: session.config.vouchesChannelId || null,
+      verificationChannelId: session.config.verificationChannelId || null,
+      memberRoleId: session.config.memberRoleId || null,
+      verificationCategoryId: session.config.verificationCategoryId || null,
       configuredBy: interaction.user.id,
       configuredByUsername: interaction.user.username
     });
+
+    // Confirmar que se guardó correctamente
+    if (!guildConfig) {
+      console.error(`[SETUP] ❌ Failed to save configuration for guild: ${session.guildId}`);
+      await interaction.update({
+        content: '❌ Error: No se pudo guardar la configuración. Por favor, intenta de nuevo.',
+        embeds: [],
+        components: []
+      });
+      return;
+    }
+
+    console.log(`[SETUP] ✅ Configuration saved successfully for guild: ${session.guildId} (${interaction.guild.name})`);
 
     const embed = new EmbedBuilder()
       .setColor(0x00ff00)

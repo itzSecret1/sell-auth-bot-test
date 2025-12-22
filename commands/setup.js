@@ -194,7 +194,7 @@ export default {
       return;
     }
 
-    // Guardar configuración
+    // Guardar configuración de forma persistente
     const guildConfig = GuildConfig.setConfig(guildId, {
       guildId: guildId,
       guildName: interaction.guild.name,
@@ -209,6 +209,16 @@ export default {
       configuredBy: interaction.user.id,
       configuredByUsername: interaction.user.username
     });
+
+    // Confirmar que se guardó correctamente
+    if (!guildConfig) {
+      await interaction.editReply({
+        content: '❌ Error: No se pudo guardar la configuración. Por favor, intenta de nuevo.'
+      });
+      return;
+    }
+
+    console.log(`[SETUP] ✅ Quick setup configuration saved successfully for guild: ${guildId} (${interaction.guild.name})`);
 
     // Crear embed de confirmación
     const embed = new EmbedBuilder()
