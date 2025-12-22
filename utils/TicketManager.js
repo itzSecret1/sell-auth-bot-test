@@ -567,8 +567,21 @@ export class TicketManager {
    */
   static async claimTicket(guild, ticketId, staffMember) {
     try {
-      const ticket = ticketsData.tickets[ticketId];
-      if (!ticket) throw new Error('Ticket not found');
+      // CRÍTICO: Recargar tickets antes de buscar
+      loadTickets();
+      
+      // Buscar por ID primero
+      let ticket = ticketsData.tickets[ticketId];
+      
+      // Si no se encuentra, intentar búsqueda alternativa
+      if (!ticket) {
+        ticket = this.getTicket(ticketId);
+      }
+      
+      if (!ticket) {
+        console.error(`[TICKET] claimTicket: Ticket not found: ${ticketId}`);
+        throw new Error('Ticket not found');
+      }
 
       if (ticket.claimedBy) {
         return { success: false, message: 'This ticket has already been claimed' };
@@ -601,8 +614,28 @@ export class TicketManager {
    */
   static async initiateClose(guild, ticketId, staffMember) {
     try {
-      const ticket = ticketsData.tickets[ticketId];
-      if (!ticket) throw new Error('Ticket not found');
+      // CRÍTICO: Recargar tickets antes de buscar
+      loadTickets();
+      
+      // Buscar por ID primero
+      let ticket = ticketsData.tickets[ticketId];
+      
+      // Si no se encuentra, intentar búsqueda alternativa
+      if (!ticket) {
+        ticket = this.getTicket(ticketId);
+      }
+      
+      // Si aún no se encuentra, buscar por variaciones del ID
+      if (!ticket) {
+        const cleanId = ticketId.replace(/^TKT-?/i, '');
+        const formattedId = `TKT-${cleanId.padStart(4, '0')}`;
+        ticket = ticketsData.tickets[formattedId];
+      }
+      
+      if (!ticket) {
+        console.error(`[TICKET] initiateClose: Ticket not found: ${ticketId}`);
+        throw new Error('Ticket not found');
+      }
 
       if (ticket.closed) {
         return { success: false, message: 'This ticket is already closed' };
@@ -647,8 +680,28 @@ export class TicketManager {
    */
   static async showRatings(guild, ticketId, staffMember, closeReason) {
     try {
-      const ticket = ticketsData.tickets[ticketId];
-      if (!ticket) throw new Error('Ticket not found');
+      // CRÍTICO: Recargar tickets antes de buscar
+      loadTickets();
+      
+      // Buscar por ID primero
+      let ticket = ticketsData.tickets[ticketId];
+      
+      // Si no se encuentra, intentar búsqueda alternativa
+      if (!ticket) {
+        ticket = this.getTicket(ticketId);
+      }
+      
+      // Si aún no se encuentra, buscar por variaciones del ID
+      if (!ticket) {
+        const cleanId = ticketId.replace(/^TKT-?/i, '');
+        const formattedId = `TKT-${cleanId.padStart(4, '0')}`;
+        ticket = ticketsData.tickets[formattedId];
+      }
+      
+      if (!ticket) {
+        console.error(`[TICKET] showRatings: Ticket not found: ${ticketId}`);
+        throw new Error('Ticket not found');
+      }
 
       const channel = await guild.channels.fetch(ticket.channelId);
       if (!channel) throw new Error('Channel not found');

@@ -2328,7 +2328,21 @@ export class Bot {
       
       // Verificar que es un mensaje en un canal de ticket
       const { TicketManager } = await import('../utils/TicketManager.js');
-      const ticket = TicketManager.getTicketByChannel(message.channel.id, false); // false = no loguear si no es ticket
+      
+      // CRÍTICO: Recargar tickets antes de buscar para asegurar datos actualizados
+      TicketManager.reloadTickets();
+      
+      // Buscar ticket por canal
+      let ticket = TicketManager.getTicketByChannel(message.channel.id, false); // false = no loguear si no es ticket
+      
+      // Si no se encuentra, intentar búsqueda alternativa
+      if (!ticket) {
+        const allTickets = TicketManager.getAllTickets();
+        ticket = Object.values(allTickets).find(t => 
+          t.channelId === message.channel.id || 
+          String(t.channelId) === String(message.channel.id)
+        );
+      }
       
       if (!ticket) return;
       
