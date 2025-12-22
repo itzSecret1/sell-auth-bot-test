@@ -194,18 +194,33 @@ export default {
       return;
     }
 
-    // Guardar configuración de forma persistente
+    // Obtener configuración existente para preservar campos adicionales
+    const existingConfig = GuildConfig.getConfig(guildId) || {};
+    
+    // Guardar configuración de forma persistente (preservando campos existentes)
     const guildConfig = GuildConfig.setConfig(guildId, {
       guildId: guildId,
       guildName: interaction.guild.name,
       adminRoleId: adminRole.id,
       staffRoleId: staffRole.id,
-      customerRoleId: customerRole?.id || null,
-      logChannelId: logChannel?.id || null,
-      transcriptChannelId: transcriptChannel?.id || null,
-      ratingChannelId: ratingChannel?.id || null,
-      spamChannelId: spamChannel?.id || null,
-      trialAdminRoleId: trialAdminRole?.id || null,
+      customerRoleId: customerRole?.id || existingConfig.customerRoleId || null,
+      logChannelId: logChannel?.id || existingConfig.logChannelId || null,
+      transcriptChannelId: transcriptChannel?.id || existingConfig.transcriptChannelId || null,
+      ratingChannelId: ratingChannel?.id || existingConfig.ratingChannelId || null,
+      spamChannelId: spamChannel?.id || existingConfig.spamChannelId || null,
+      trialAdminRoleId: trialAdminRole?.id || existingConfig.trialAdminRoleId || null,
+      // Preservar campos adicionales que pueden estar configurados en setup start
+      botStatusChannelId: existingConfig.botStatusChannelId || null,
+      automodChannelId: existingConfig.automodChannelId || null,
+      backupChannelId: existingConfig.backupChannelId || null,
+      weeklyReportsChannelId: existingConfig.weeklyReportsChannelId || null,
+      acceptChannelId: existingConfig.acceptChannelId || null,
+      staffRatingSupportChannelId: existingConfig.staffRatingSupportChannelId || null,
+      staffFeedbacksChannelId: existingConfig.staffFeedbacksChannelId || null,
+      vouchesChannelId: existingConfig.vouchesChannelId || null,
+      verificationChannelId: existingConfig.verificationChannelId || null,
+      memberRoleId: existingConfig.memberRoleId || null,
+      verificationCategoryId: existingConfig.verificationCategoryId || null,
       configuredBy: interaction.user.id,
       configuredByUsername: interaction.user.username
     });
@@ -218,7 +233,21 @@ export default {
       return;
     }
 
-    console.log(`[SETUP] ✅ Quick setup configuration saved successfully for guild: ${guildId} (${interaction.guild.name})`);
+    // Verificar inmediatamente que se guardó correctamente
+    const verifyConfig = GuildConfig.getConfig(guildId);
+    if (!verifyConfig || verifyConfig.adminRoleId !== adminRole.id) {
+      console.error(`[SETUP] ⚠️ Warning: Configuration may not have persisted correctly. Retrying...`);
+      // Reintentar guardado
+      const retryConfig = GuildConfig.setConfig(guildId, guildConfig);
+      if (!retryConfig || retryConfig.adminRoleId !== adminRole.id) {
+        await interaction.editReply({
+          content: '❌ Error: No se pudo verificar que la configuración se guardó correctamente. Por favor, verifica manualmente o intenta de nuevo.'
+        });
+        return;
+      }
+    }
+
+    console.log(`[SETUP] ✅ Quick setup configuration saved and verified successfully for guild: ${guildId} (${interaction.guild.name})`);
 
     // Crear embed de confirmación
     const embed = new EmbedBuilder()
