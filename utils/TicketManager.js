@@ -45,6 +45,49 @@ export function saveTicketsData() {
 // Inicializar
 loadTickets();
 
+/**
+ * Normalizar nombre de categoría eliminando emojis, stickers y caracteres especiales
+ * @param {string} name - Nombre de la categoría
+ * @returns {string} - Nombre normalizado (solo texto)
+ */
+function normalizeCategoryName(name) {
+  if (!name) return '';
+  
+  // Eliminar emojis Unicode (incluyendo variaciones de selector)
+  // Patrón para emojis: incluye emojis básicos, emojis con variaciones de tono, banderas, etc.
+  let normalized = name
+    // Eliminar emojis Unicode (rango básico)
+    .replace(/[\u{1F300}-\u{1F9FF}]/gu, '')
+    // Eliminar emojis de símbolos y pictogramas
+    .replace(/[\u{1F600}-\u{1F64F}]/gu, '')
+    // Eliminar emojis de símbolos varios
+    .replace(/[\u{1F680}-\u{1F6FF}]/gu, '')
+    // Eliminar emojis suplementarios
+    .replace(/[\u{1F900}-\u{1F9FF}]/gu, '')
+    // Eliminar emojis de símbolos y pictogramas extendidos
+    .replace(/[\u{1FA00}-\u{1FAFF}]/gu, '')
+    // Eliminar símbolos varios (incluye monedas, flechas, etc.)
+    .replace(/[\u{2600}-\u{26FF}]/gu, '')
+    // Eliminar símbolos varios suplementarios
+    .replace(/[\u{2700}-\u{27BF}]/gu, '')
+    // Eliminar símbolos y pictogramas varios
+    .replace(/[\u{1F000}-\u{1F02F}]/gu, '')
+    // Eliminar variaciones de selector (para emojis con tonos de piel)
+    .replace(/[\u{FE00}-\u{FE0F}]/gu, '')
+    // Eliminar marcas de combinación cero ancho (para emojis compuestos)
+    .replace(/[\u{200D}]/gu, '')
+    // Eliminar otros caracteres especiales comunes (bullet points, etc.)
+    .replace(/[•·▪▫]/g, '')
+    // Eliminar espacios múltiples
+    .replace(/\s+/g, ' ')
+    // Trim espacios al inicio y final
+    .trim()
+    // Convertir a minúsculas para comparación
+    .toLowerCase();
+  
+  return normalized;
+}
+
 export class TicketManager {
   /**
    * Crear un nuevo ticket
@@ -82,16 +125,24 @@ export class TicketManager {
         // Actualizar caché primero para asegurar que tenemos todas las categorías
         await guild.channels.fetch().catch(() => {});
         
-        // Buscar categoría existente con nombre normalizado (case-insensitive, sin espacios extra)
-        const normalizedCategoryName = categoryName.toLowerCase().trim();
-        ticketCategory = guild.channels.cache.find(
-          c => c.type === ChannelType.GuildCategory && 
-          c.name.toLowerCase().trim() === normalizedCategoryName
-        );
+        // Normalizar el nombre de categoría esperado (sin emojis, stickers, etc.)
+        const normalizedExpectedName = normalizeCategoryName(categoryName);
+        console.log(`[TICKET] Searching for category with normalized name: "${normalizedExpectedName}" (original: "${categoryName}")`);
         
-        // Si aún no se encuentra, buscar variaciones comunes
+        // Buscar categoría existente comparando nombres normalizados (ignora emojis/stickers)
+        ticketCategory = guild.channels.cache.find(c => {
+          if (c.type !== ChannelType.GuildCategory) return false;
+          const normalizedExistingName = normalizeCategoryName(c.name);
+          const matches = normalizedExistingName === normalizedExpectedName;
+          if (matches) {
+            console.log(`[TICKET] Found category by normalized name: "${c.name}" (normalized: "${normalizedExistingName}")`);
+          }
+          return matches;
+        });
+        
+        // Si aún no se encuentra, buscar variaciones comunes (también normalizadas)
         if (!ticketCategory) {
-          // Buscar con diferentes variaciones de formato
+          // Buscar con diferentes variaciones de formato (todas normalizadas)
           const variations = [
             categoryName,
             categoryName.toLowerCase(),
@@ -101,12 +152,13 @@ export class TicketManager {
           ];
           
           for (const variation of variations) {
-            ticketCategory = guild.channels.cache.find(
-              c => c.type === ChannelType.GuildCategory && 
-              c.name.toLowerCase().trim() === variation.toLowerCase().trim()
-            );
+            const normalizedVariation = normalizeCategoryName(variation);
+            ticketCategory = guild.channels.cache.find(c => {
+              if (c.type !== ChannelType.GuildCategory) return false;
+              return normalizeCategoryName(c.name) === normalizedVariation;
+            });
             if (ticketCategory) {
-              console.log(`[TICKET] Found category with variation: ${ticketCategory.name}`);
+              console.log(`[TICKET] Found category with variation: "${ticketCategory.name}" (normalized: "${normalizeCategoryName(ticketCategory.name)}")`);
               break;
             }
           }
