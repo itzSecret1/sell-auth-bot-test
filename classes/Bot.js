@@ -203,12 +203,11 @@ export class Bot {
                 // Crear embed de re-autorización automática
                 const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = await import('discord.js');
                 const clientId = this.client.user.id;
-                const redirectUri = encodeURIComponent('https://restorecord.com');
-                const scopes = ['identify', 'guilds.join', 'bot'];
                 // Permisos mejorados: Administrator (8) o permisos específicos combinados
                 // Manage Roles (268435456) + Manage Channels (16) + Send Messages (2048) + Embed Links (16384) = 268453904
                 const permissions = '268453904';
-                const verifyUrl = `https://discord.com/api/oauth2/authorize?client_id=${clientId}&redirect_uri=${redirectUri}&response_type=code&scope=${scopes.join('%20')}&permissions=${permissions}`;
+                // Usar solo scope 'bot' para evitar problemas con redirect_uri
+                const verifyUrl = `https://discord.com/api/oauth2/authorize?client_id=${clientId}&permissions=${permissions}&scope=bot`;
                 
                 const reAuthEmbed = new EmbedBuilder()
                   .setColor(0xff9900)

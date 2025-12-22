@@ -68,13 +68,13 @@ export default {
         .setFooter({ text: `${interaction.guild.name} | Verification System` })
         .setTimestamp();
 
-      // Create verify button with OAuth2 URL (mejorado con más permisos y mejor integración)
+      // Create verify button with OAuth2 URL (mejorado - sin redirect_uri para evitar errores)
       const clientId = interaction.client.user.id;
-      const redirectUri = encodeURIComponent('https://restorecord.com'); // OAuth redirect URL
-      const scopes = ['identify', 'guilds.join', 'bot'];
+      // Para bot authorization, no necesitamos redirect_uri si solo usamos scope 'bot'
       // Permisos mejorados: Manage Roles (268435456) + Manage Channels (16) + Send Messages (2048) + Embed Links (16384) = 268453904
       const permissions = '268453904'; // Permisos combinados mejorados
-      const verifyUrl = `https://discord.com/api/oauth2/authorize?client_id=${clientId}&redirect_uri=${redirectUri}&response_type=code&scope=${scopes.join('%20')}&permissions=${permissions}`;
+      // Usar solo scope 'bot' para evitar problemas con redirect_uri
+      const verifyUrl = `https://discord.com/api/oauth2/authorize?client_id=${clientId}&permissions=${permissions}&scope=bot`;
 
       const verifyButton = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
