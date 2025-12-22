@@ -1466,14 +1466,46 @@ export class Bot {
 
   // Validar formato de invoice ID
   validateInvoiceIdFormat(invoiceId) {
-    // Formato esperado: 12-14 caracteres alfanuméricos - 15 dígitos
-    // Ejemplos válidos: 
-    // - 6555d345ec623-0000008535737 (12 chars - 15 digits)
-    // - f6fbff4893023-0000008534297 (13 chars - 15 digits)
-    // - baa5d08755b17-0000008500435 (13 chars - 15 digits)
-    // - 35bd25e19030f-0000008489204 (14 chars - 15 digits)
-    const invoicePattern = /^[a-z0-9]{12,14}-[0-9]{15}$/i;
-    return invoicePattern.test(invoiceId.trim());
+    if (!invoiceId || typeof invoiceId !== 'string') return false;
+    
+    const cleanId = invoiceId.trim();
+    
+    // Formato SellAuth REAL: 11-15 caracteres alfanuméricos - 10-15 dígitos
+    // Ejemplos válidos reales de SellAuth:
+    // - 2bea7db417ecb-0000008698537 (13 chars - 13 digits) ✓ REAL
+    // - 6555d345ec623-0000008535737 (12 chars - 13 digits)
+    // - f6fbff4893023-0000008534297 (13 chars - 13 digits)
+    // - baa5d08755b17-0000008500435 (13 chars - 13 digits)
+    // - 35bd25e19030f-0000008489204 (14 chars - 13 digits)
+    
+    // Patrón flexible que acepta el formato real de SellAuth
+    const invoicePattern = /^[a-z0-9]{11,15}-[0-9]{10,15}$/i;
+    
+    if (!invoicePattern.test(cleanId)) {
+      return false;
+    }
+    
+    // Verificar que tenga al menos 20 caracteres totales (mínimo razonable)
+    if (cleanId.length < 20) {
+      return false;
+    }
+    
+    // Verificar que tenga formato válido (dos partes separadas por guión)
+    const parts = cleanId.split('-');
+    if (parts.length !== 2) {
+      return false;
+    }
+    
+    // Verificar que ambas partes tengan longitud razonable
+    if (parts[0].length < 11 || parts[0].length > 15) {
+      return false;
+    }
+    
+    if (parts[1].length < 10 || parts[1].length > 15) {
+      return false;
+    }
+    
+    return true;
   }
 
   async handleTicketModal(interaction) {
@@ -1500,12 +1532,12 @@ export class Bot {
           .addFields(
             {
               name: '📋 Required Format',
-              value: '`[12-14 alphanumeric characters]-[15 digits]`\n\n**Valid Examples:**\n• `6555d345ec623-0000008535737` (12 chars)\n• `f6fbff4893023-0000008534297` (13 chars)\n• `baa5d08755b17-0000008500435` (13 chars)\n• `35bd25e19030f-0000008489204` (14 chars)',
+              value: '`[11-15 alphanumeric characters]-[10-15 digits]`\n\n**Valid Examples:**\n• `2bea7db417ecb-0000008698537` (13 chars - 13 digits) ✓\n• `6555d345ec623-0000008535737` (12 chars - 13 digits)\n• `f6fbff4893023-0000008534297` (13 chars - 13 digits)\n• `baa5d08755b17-0000008500435` (13 chars - 13 digits)\n• `35bd25e19030f-0000008489204` (14 chars - 13 digits)',
               inline: false
             },
               {
                 name: '🔍 How to Find Your Invoice ID',
-                value: '**Step 1:** Go to [SellAuth Customer Dashboard](https://sellauth.com/dashboard)\n**Step 2:** Log in to your account\n**Step 3:** Navigate to "My Orders" or "Purchase History"\n**Step 4:** Find your order and click on it\n**Step 5:** Copy the Invoice ID (format: `xxxxx-xxxxxxxxxxxxx`)\n\n**Note:** The Invoice ID is different from the order number. Look for a code that matches the format above.\n\n**Valid formats:**\n• `12-14 alphanumeric characters` followed by `-` and `15 digits`\n• Example: `35bd25e19030f-0000008489204`',
+                value: '**Step 1:** Go to [SellAuth Customer Dashboard](https://sellauth.com/dashboard)\n**Step 2:** Log in to your account\n**Step 3:** Navigate to "My Orders" or "Purchase History"\n**Step 4:** Find your order and click on it\n**Step 5:** Copy the Invoice ID (format: `xxxxxxxxxxxxx-xxxxxxxxxxxxx`)\n\n**Note:** The Invoice ID is different from the order number. Look for a code that matches the format above.\n\n**Valid formats:**\n• `11-15 alphanumeric characters` followed by `-` and `10-15 digits`\n• Example: `2bea7db417ecb-0000008698537`',
                 inline: false
               },
             {
@@ -2594,31 +2626,39 @@ export class Bot {
   detectInvoice(text) {
     if (!text || typeof text !== 'string') return null;
     
-    // Formato SellAuth EXACTO: 12-14 caracteres alfanuméricos seguidos de guión y 15 dígitos
-    // Ejemplos válidos:
-    // - 6555d345ec623-0000008535737 (12 chars - 15 digits)
-    // - f6fbff4893023-0000008534297 (13 chars - 15 digits)
-    // - baa5d08755b17-0000008500435 (13 chars - 15 digits)
-    // - 35bd25e19030f-0000008489204 (14 chars - 15 digits)
+    // Formato SellAuth REAL: 11-15 caracteres alfanuméricos seguidos de guión y 10-15 dígitos
+    // Ejemplos válidos REALES:
+    // - 2bea7db417ecb-0000008698537 (13 chars - 13 digits) ✓ FORMATO REAL
+    // - 6555d345ec623-0000008535737 (12 chars - 13 digits)
+    // - f6fbff4893023-0000008534297 (13 chars - 13 digits)
+    // - baa5d08755b17-0000008500435 (13 chars - 13 digits)
+    // - 35bd25e19030f-0000008489204 (14 chars - 13 digits)
     
-    // PATRÓN PRINCIPAL: Formato SellAuth exacto (12-14 alfanuméricos - 15 dígitos)
-    const sellAuthExactPattern = /\b([a-z0-9]{12,14}-[0-9]{15})\b/i;
-    let match = text.match(sellAuthExactPattern);
+    // PATRÓN PRINCIPAL: Formato SellAuth real (11-15 alfanuméricos - 10-15 dígitos)
+    const sellAuthRealPattern = /\b([a-z0-9]{11,15}-[0-9]{10,15})\b/i;
+    let match = text.match(sellAuthRealPattern);
     if (match && match[1]) {
       const invoiceId = match[1];
-      console.log(`[INVOICE-DETECT] ✅ Detected SellAuth EXACT format: ${invoiceId}`);
-      return invoiceId;
+      // Verificar que tenga al menos 20 caracteres totales
+      if (invoiceId.length >= 20) {
+        console.log(`[INVOICE-DETECT] ✅ Detected SellAuth REAL format: ${invoiceId}`);
+        return invoiceId;
+      }
     }
     
-    // PATRÓN FLEXIBLE: Formato similar pero con variaciones en longitud
-    const sellAuthFlexiblePattern = /\b([a-z0-9]{10,16}-[0-9]{10,16})\b/i;
+    // PATRÓN FLEXIBLE: Formato similar pero con variaciones en longitud (más permisivo)
+    const sellAuthFlexiblePattern = /\b([a-z0-9]{8,16}-[0-9]{8,16})\b/i;
     match = text.match(sellAuthFlexiblePattern);
     if (match && match[1]) {
       const invoiceId = match[1];
       // Verificar que tenga al menos 20 caracteres totales (mínimo razonable para invoice)
       if (invoiceId.length >= 20) {
-        console.log(`[INVOICE-DETECT] ✅ Detected SellAuth flexible format: ${invoiceId}`);
-        return invoiceId;
+        const parts = invoiceId.split('-');
+        // Verificar que tenga formato válido (dos partes con longitud razonable)
+        if (parts.length === 2 && parts[0].length >= 8 && parts[1].length >= 8) {
+          console.log(`[INVOICE-DETECT] ✅ Detected SellAuth flexible format: ${invoiceId}`);
+          return invoiceId;
+        }
       }
     }
     
