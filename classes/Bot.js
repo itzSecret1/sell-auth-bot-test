@@ -1155,22 +1155,51 @@ export class Bot {
         ticket = TicketManager.getTicketByChannel(interaction.channel.id, true); // verbose = true para debugging
       }
       
-      // Último intento: buscar en todos los tickets por canal
+      // Último intento: buscar en todos los tickets por canal (más robusto)
       if (!ticket && interaction.channel) {
         console.log(`[TICKET] Trying alternative search methods...`);
         const allTickets = TicketManager.getAllTickets();
-        ticket = Object.values(allTickets).find(t => t.channelId === interaction.channel.id);
+        // Buscar por ID de canal (exacto y como string)
+        ticket = Object.values(allTickets).find(t => 
+          t.channelId === interaction.channel.id || 
+          String(t.channelId) === String(interaction.channel.id) ||
+          t.id === ticketId
+        );
         if (ticket) {
           console.log(`[TICKET] Found ticket via alternative search: ${ticket.id}`);
         }
       }
       
+      // Si aún no se encuentra, intentar recuperar el ticket desde el canal
+      if (!ticket && interaction.channel) {
+        // Verificar si el nombre del canal parece un ticket (purchase-, replaces-, etc.)
+        const channelName = interaction.channel.name.toLowerCase();
+        const isTicketChannel = channelName.includes('purchase-') || 
+                                channelName.includes('replaces-') || 
+                                channelName.includes('tkt-') ||
+                                channelName.includes('ticket-');
+        
+        if (isTicketChannel) {
+          console.log(`[TICKET] Channel appears to be a ticket but not found in database. Attempting recovery...`);
+          try {
+            await TicketManager.recoverTickets(interaction.guild);
+            ticket = TicketManager.getTicketByChannel(interaction.channel.id, false);
+            if (ticket) {
+              console.log(`[TICKET] ✅ Ticket recovered: ${ticket.id}`);
+            }
+          } catch (recoverError) {
+            console.error(`[TICKET] Error recovering ticket:`, recoverError);
+          }
+        }
+      }
+      
+      // Si aún no se encuentra, simplemente ignorar silenciosamente (no mostrar error al usuario)
       if (!ticket) {
-        console.warn(`[TICKET] Ticket not found: ${ticketId} (channel: ${interaction.channel?.id || 'N/A'})`);
-        await interaction.reply({
-          content: `❌ Ticket not found: ${ticketId}\n\n**Note:** This ticket may have been closed or deleted. If you believe this is an error, please contact an administrator.`,
-          ephemeral: true
-        });
+        console.warn(`[TICKET] Ticket not found: ${ticketId} (channel: ${interaction.channel?.id || 'N/A'}) - Silently ignoring`);
+        // NO mostrar mensaje de error al usuario - simplemente ignorar
+        try {
+          await interaction.deferUpdate().catch(() => {});
+        } catch {}
         return;
       }
       
@@ -1205,22 +1234,51 @@ export class Bot {
         ticket = TicketManager.getTicketByChannel(interaction.channel.id, true); // verbose = true para debugging
       }
       
-      // Último intento: buscar en todos los tickets por canal
+      // Último intento: buscar en todos los tickets por canal (más robusto)
       if (!ticket && interaction.channel) {
         console.log(`[TICKET] Trying alternative search methods...`);
         const allTickets = TicketManager.getAllTickets();
-        ticket = Object.values(allTickets).find(t => t.channelId === interaction.channel.id);
+        // Buscar por ID de canal (exacto y como string)
+        ticket = Object.values(allTickets).find(t => 
+          t.channelId === interaction.channel.id || 
+          String(t.channelId) === String(interaction.channel.id) ||
+          t.id === ticketId
+        );
         if (ticket) {
           console.log(`[TICKET] Found ticket via alternative search: ${ticket.id}`);
         }
       }
       
+      // Si aún no se encuentra, intentar recuperar el ticket desde el canal
+      if (!ticket && interaction.channel) {
+        // Verificar si el nombre del canal parece un ticket (purchase-, replaces-, etc.)
+        const channelName = interaction.channel.name.toLowerCase();
+        const isTicketChannel = channelName.includes('purchase-') || 
+                                channelName.includes('replaces-') || 
+                                channelName.includes('tkt-') ||
+                                channelName.includes('ticket-');
+        
+        if (isTicketChannel) {
+          console.log(`[TICKET] Channel appears to be a ticket but not found in database. Attempting recovery...`);
+          try {
+            await TicketManager.recoverTickets(interaction.guild);
+            ticket = TicketManager.getTicketByChannel(interaction.channel.id, false);
+            if (ticket) {
+              console.log(`[TICKET] ✅ Ticket recovered: ${ticket.id}`);
+            }
+          } catch (recoverError) {
+            console.error(`[TICKET] Error recovering ticket:`, recoverError);
+          }
+        }
+      }
+      
+      // Si aún no se encuentra, simplemente ignorar silenciosamente (no mostrar error al usuario)
       if (!ticket) {
-        console.warn(`[TICKET] Ticket not found: ${ticketId} (channel: ${interaction.channel?.id || 'N/A'})`);
-        await interaction.reply({
-          content: `❌ Ticket not found: ${ticketId}\n\n**Note:** This ticket may have been closed or deleted. If you believe this is an error, please contact an administrator.`,
-          ephemeral: true
-        });
+        console.warn(`[TICKET] Ticket not found: ${ticketId} (channel: ${interaction.channel?.id || 'N/A'}) - Silently ignoring`);
+        // NO mostrar mensaje de error al usuario - simplemente ignorar
+        try {
+          await interaction.deferUpdate().catch(() => {});
+        } catch {}
         return;
       }
       
