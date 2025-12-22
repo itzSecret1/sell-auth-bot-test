@@ -1858,6 +1858,126 @@ export class TicketManager {
   }
 
   /**
+   * Actualizar permisos de un ticket para permitir archivos y videos
+   */
+  static async updateTicketPermissions(guild, ticket) {
+    try {
+      const channel = await guild.channels.fetch(ticket.channelId).catch(() => null);
+      if (!channel) return false;
+
+      const guildConfig = GuildConfig.getConfig(guild.id);
+      const staffRoleId = guildConfig?.staffRoleId;
+      const adminRoleId = guildConfig?.adminRoleId;
+
+      let needsUpdate = false;
+      const permissionOverwrites = channel.permissionOverwrites.cache;
+
+      // Verificar permisos del usuario creador
+      const userOverwrite = permissionOverwrites.get(ticket.userId);
+      if (userOverwrite) {
+        const hasAttachFiles = userOverwrite.allow.has(PermissionFlagsBits.AttachFiles);
+        const hasEmbedLinks = userOverwrite.allow.has(PermissionFlagsBits.EmbedLinks);
+        
+        if (!hasAttachFiles || !hasEmbedLinks) {
+          needsUpdate = true;
+          await channel.permissionOverwrites.edit(ticket.userId, {
+            ViewChannel: true,
+            SendMessages: true,
+            AttachFiles: true,
+            ReadMessageHistory: true,
+            EmbedLinks: true,
+            UseExternalEmojis: true,
+            UseExternalStickers: true
+          });
+          console.log(`[TICKET] ✅ Updated permissions for user ${ticket.userId} in ticket ${ticket.id}`);
+        }
+      } else {
+        // Si no tiene overwrite, crear uno
+        needsUpdate = true;
+        await channel.permissionOverwrites.create(ticket.userId, {
+          ViewChannel: true,
+          SendMessages: true,
+          AttachFiles: true,
+          ReadMessageHistory: true,
+          EmbedLinks: true,
+          UseExternalEmojis: true,
+          UseExternalStickers: true
+        });
+        console.log(`[TICKET] ✅ Created permissions for user ${ticket.userId} in ticket ${ticket.id}`);
+      }
+
+      // Verificar permisos de staff
+      if (staffRoleId) {
+        const staffOverwrite = permissionOverwrites.get(staffRoleId);
+        if (staffOverwrite) {
+          const hasAttachFiles = staffOverwrite.allow.has(PermissionFlagsBits.AttachFiles);
+          const hasEmbedLinks = staffOverwrite.allow.has(PermissionFlagsBits.EmbedLinks);
+          
+          if (!hasAttachFiles || !hasEmbedLinks) {
+            needsUpdate = true;
+            await channel.permissionOverwrites.edit(staffRoleId, {
+              ViewChannel: true,
+              SendMessages: true,
+              AttachFiles: true,
+              ReadMessageHistory: true,
+              EmbedLinks: true
+            });
+            console.log(`[TICKET] ✅ Updated permissions for staff role in ticket ${ticket.id}`);
+          }
+        } else {
+          needsUpdate = true;
+          await channel.permissionOverwrites.create(staffRoleId, {
+            ViewChannel: true,
+            SendMessages: true,
+            AttachFiles: true,
+            ReadMessageHistory: true,
+            EmbedLinks: true
+          });
+          console.log(`[TICKET] ✅ Created permissions for staff role in ticket ${ticket.id}`);
+        }
+      }
+
+      // Verificar permisos de admin
+      if (adminRoleId) {
+        const adminOverwrite = permissionOverwrites.get(adminRoleId);
+        if (adminOverwrite) {
+          const hasAttachFiles = adminOverwrite.allow.has(PermissionFlagsBits.AttachFiles);
+          const hasEmbedLinks = adminOverwrite.allow.has(PermissionFlagsBits.EmbedLinks);
+          
+          if (!hasAttachFiles || !hasEmbedLinks) {
+            needsUpdate = true;
+            await channel.permissionOverwrites.edit(adminRoleId, {
+              ViewChannel: true,
+              SendMessages: true,
+              ManageChannels: true,
+              AttachFiles: true,
+              ReadMessageHistory: true,
+              EmbedLinks: true
+            });
+            console.log(`[TICKET] ✅ Updated permissions for admin role in ticket ${ticket.id}`);
+          }
+        } else {
+          needsUpdate = true;
+          await channel.permissionOverwrites.create(adminRoleId, {
+            ViewChannel: true,
+            SendMessages: true,
+            ManageChannels: true,
+            AttachFiles: true,
+            ReadMessageHistory: true,
+            EmbedLinks: true
+          });
+          console.log(`[TICKET] ✅ Created permissions for admin role in ticket ${ticket.id}`);
+        }
+      }
+
+      return needsUpdate;
+    } catch (error) {
+      console.error(`[TICKET] ❌ Error updating permissions for ticket ${ticket.id}:`, error);
+      return false;
+    }
+  }
+
+  /**
    * Recuperar tickets al iniciar el bot - verificar que los canales existan
    */
   static async recoverTickets(guild) {
@@ -1872,6 +1992,7 @@ export class TicketManager {
       let recovered = 0;
       let closed = 0;
       let skipped = 0;
+      let permissionsUpdated = 0;
       
       // Obtener todos los canales del servidor para verificación más rápida
       const guildChannels = await guild.channels.fetch().catch(() => new Map());
@@ -1929,6 +2050,17 @@ export class TicketManager {
             if (!ticket.id) {
               ticket.id = ticketId;
             }
+            
+            // CRÍTICO: Actualizar permisos del ticket para permitir archivos y videos
+            try {
+              const updated = await this.updateTicketPermissions(guild, ticket);
+              if (updated) {
+                permissionsUpdated++;
+                console.log(`[TICKET-RECOVERY] ✅ Updated permissions for ticket ${ticketId}`);
+              }
+            } catch (permError) {
+              console.error(`[TICKET-RECOVERY] ⚠️ Error updating permissions for ticket ${ticketId}:`, permError.message);
+            }
           }
         } catch (error) {
           console.error(`[TICKET-RECOVERY] ❌ Error checking ticket ${ticketId}:`, error.message);
@@ -1945,6 +2077,7 @@ export class TicketManager {
       
       console.log(`[TICKET-RECOVERY] ✅ Recovery complete:`);
       console.log(`[TICKET-RECOVERY]   - Recovered: ${recovered} tickets`);
+      console.log(`[TICKET-RECOVERY]   - Permissions updated: ${permissionsUpdated} tickets`);
       console.log(`[TICKET-RECOVERY]   - Closed: ${closed} invalid tickets`);
       console.log(`[TICKET-RECOVERY]   - Skipped: ${skipped} tickets (closed or other guild)`);
       console.log(`[TICKET-RECOVERY]   - Total processed: ${recovered + closed + skipped}/${totalTickets}`);
