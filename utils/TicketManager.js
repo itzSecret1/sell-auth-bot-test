@@ -432,33 +432,86 @@ export class TicketManager {
       // Crear canal del ticket - SIEMPRE con parent (categoría) - OBLIGATORIO
       console.log(`[TICKET] Creating channel "${channelName}" in category "${ticketCategory.name}" (ID: ${ticketCategory.id})`);
       
-      const ticketChannel = await guild.channels.create({
-        name: channelName,
-        type: ChannelType.GuildText,
-        parent: ticketCategory.id, // OBLIGATORIO - siempre debe tener categoría
-        permissionOverwrites: permissionOverwrites
-      });
-      
-      // Verificar que el canal se creó con categoría correcta
-      if (!ticketChannel.parentId || ticketChannel.parentId !== ticketCategory.id) {
-        console.error(`[TICKET] ❌ ERROR: Channel created without correct parent! Expected: ${ticketCategory.id}, Got: ${ticketChannel.parentId}`);
-        // Intentar mover el canal a la categoría correcta inmediatamente
-        try {
-          await ticketChannel.setParent(ticketCategory.id);
-          console.log(`[TICKET] ✅ Channel moved to correct category after creation`);
-        } catch (moveError) {
-          console.error(`[TICKET] ❌ CRITICAL: Failed to move channel to category:`, moveError);
-          // Si no se puede mover, eliminar el canal y lanzar error
-          try {
-            await ticketChannel.delete();
-            console.log(`[TICKET] Deleted incorrectly created channel`);
-          } catch (deleteError) {
-            console.error(`[TICKET] Failed to delete channel:`, deleteError);
-          }
-          throw new Error(`Failed to assign category to ticket channel: ${moveError.message}`);
+      // Verificar que la categoría existe antes de crear el canal
+      try {
+        const categoryCheck = await guild.channels.fetch(ticketCategory.id).catch(() => null);
+        if (!categoryCheck || categoryCheck.type !== ChannelType.GuildCategory) {
+          console.error(`[TICKET] ❌ Category ${ticketCategory.id} is invalid or doesn't exist! Creating emergency category...`);
+          ticketCategory = await guild.channels.create({
+            name: categoryName,
+            type: ChannelType.GuildCategory,
+            permissionOverwrites: [
+              {
+                id: guild.id,
+                deny: [PermissionFlagsBits.ViewChannel]
+              }
+            ]
+          });
+          console.log(`[TICKET] ✅ Emergency category created: ${ticketCategory.name} (ID: ${ticketCategory.id})`);
         }
-      } else {
-        console.log(`[TICKET] ✅ Channel created successfully in category "${ticketCategory.name}" (ID: ${ticketCategory.id})`);
+      } catch (categoryError) {
+        console.error(`[TICKET] ❌ Error verifying category:`, categoryError);
+        throw new Error(`Category verification failed: ${categoryError.message}`);
+      }
+      
+      // Crear el canal con parent explícito
+      let ticketChannel;
+      try {
+        ticketChannel = await guild.channels.create({
+          name: channelName,
+          type: ChannelType.GuildText,
+          parent: ticketCategory.id, // OBLIGATORIO - siempre debe tener categoría
+          permissionOverwrites: permissionOverwrites
+        });
+        console.log(`[TICKET] Channel created: ${ticketChannel.id}`);
+      } catch (createError) {
+        console.error(`[TICKET] ❌ Error creating channel:`, createError);
+        throw new Error(`Failed to create ticket channel: ${createError.message}`);
+      }
+      
+      // CRÍTICO: Verificar inmediatamente después de crear que tiene la categoría correcta
+      // Recargar el canal desde Discord para obtener el estado real
+      try {
+        const freshChannel = await guild.channels.fetch(ticketChannel.id);
+        const actualParentId = freshChannel.parentId;
+        
+        if (!actualParentId || actualParentId !== ticketCategory.id) {
+          console.error(`[TICKET] ❌ CRITICAL ERROR: Channel created without correct parent!`);
+          console.error(`[TICKET]   Expected category: ${ticketCategory.id} (${ticketCategory.name})`);
+          console.error(`[TICKET]   Actual parent: ${actualParentId || 'NONE'}`);
+          
+          // Intentar mover el canal a la categoría correcta inmediatamente
+          try {
+            await freshChannel.setParent(ticketCategory.id, { lockPermissions: false });
+            // Verificar de nuevo después de mover
+            const recheckChannel = await guild.channels.fetch(ticketChannel.id);
+            if (recheckChannel.parentId === ticketCategory.id) {
+              console.log(`[TICKET] ✅ Channel successfully moved to correct category after creation`);
+            } else {
+              throw new Error(`Channel still not in correct category after move attempt`);
+            }
+          } catch (moveError) {
+            console.error(`[TICKET] ❌ CRITICAL: Failed to move channel to category:`, moveError);
+            // Si no se puede mover, eliminar el canal y lanzar error
+            try {
+              await freshChannel.delete('Ticket created outside category - deleting to prevent orphaned channel');
+              console.log(`[TICKET] ✅ Deleted incorrectly created channel`);
+            } catch (deleteError) {
+              console.error(`[TICKET] ❌ Failed to delete channel:`, deleteError);
+            }
+            throw new Error(`Failed to assign category to ticket channel. Channel was deleted to prevent orphaned tickets. Error: ${moveError.message}`);
+          }
+        } else {
+          console.log(`[TICKET] ✅ Channel created successfully in category "${ticketCategory.name}" (ID: ${ticketCategory.id})`);
+          console.log(`[TICKET] ✅ Verified: Channel parent is correct (${actualParentId})`);
+        }
+      } catch (verifyError) {
+        console.error(`[TICKET] ❌ Error verifying channel category:`, verifyError);
+        // Intentar eliminar el canal si no podemos verificar
+        try {
+          await ticketChannel.delete('Verification failed - deleting channel').catch(() => {});
+        } catch {}
+        throw new Error(`Failed to verify ticket channel category: ${verifyError.message}`);
       }
 
       // Crear embed del ticket
