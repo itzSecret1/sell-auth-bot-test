@@ -1288,17 +1288,33 @@ export class TicketManager {
     // Recargar tickets antes de buscar para asegurar datos actualizados
     loadTickets();
     
+    if (!channelId) {
+      console.warn('[TICKET] getTicketByChannel called with null/undefined channelId');
+      return null;
+    }
+    
     // Buscar por channelId exacto
-    const ticket = Object.values(ticketsData.tickets).find(t => t.channelId === channelId);
+    let ticket = Object.values(ticketsData.tickets).find(t => t.channelId === channelId);
     
     if (ticket) {
       return ticket;
     }
     
     // Si no se encuentra, buscar también por channelId como string
-    return Object.values(ticketsData.tickets).find(t => 
+    ticket = Object.values(ticketsData.tickets).find(t => 
       String(t.channelId) === String(channelId)
     );
+    
+    if (ticket) {
+      return ticket;
+    }
+    
+    // Log para debugging
+    console.log(`[TICKET] No ticket found for channel: ${channelId}`);
+    console.log(`[TICKET] Available tickets: ${Object.keys(ticketsData.tickets).length}`);
+    console.log(`[TICKET] Channel IDs in tickets: ${Object.values(ticketsData.tickets).map(t => t.channelId).join(', ')}`);
+    
+    return null;
   }
 
   /**

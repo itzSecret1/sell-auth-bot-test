@@ -1122,12 +1122,19 @@ export class Bot {
       const ticketId = customId.replace('ticket_claim_', '');
       console.log(`[TICKET] Claim button clicked for ticket: ${ticketId}`);
       
-      const ticket = TicketManager.getTicket(ticketId);
+      // Intentar buscar por ID primero
+      let ticket = TicketManager.getTicket(ticketId);
+      
+      // Si no se encuentra por ID, intentar buscar por canal actual (más confiable)
+      if (!ticket && interaction.channel) {
+        console.log(`[TICKET] Ticket not found by ID, trying to find by channel: ${interaction.channel.id}`);
+        ticket = TicketManager.getTicketByChannel(interaction.channel.id);
+      }
       
       if (!ticket) {
-        console.warn(`[TICKET] Ticket not found: ${ticketId}`);
+        console.warn(`[TICKET] Ticket not found: ${ticketId} (channel: ${interaction.channel?.id || 'N/A'})`);
         await interaction.reply({
-          content: `❌ Ticket not found: ${ticketId}`,
+          content: `❌ Ticket not found: ${ticketId}\n\n**Note:** This ticket may have been closed or deleted. If you believe this is an error, please contact an administrator.`,
           ephemeral: true
         });
         return;
@@ -1152,12 +1159,19 @@ export class Bot {
       const ticketId = customId.replace('ticket_close_', '');
       console.log(`[TICKET] Close button clicked for ticket: ${ticketId}`);
       
-      const ticket = TicketManager.getTicket(ticketId);
+      // Intentar buscar por ID primero
+      let ticket = TicketManager.getTicket(ticketId);
+      
+      // Si no se encuentra por ID, intentar buscar por canal actual (más confiable)
+      if (!ticket && interaction.channel) {
+        console.log(`[TICKET] Ticket not found by ID, trying to find by channel: ${interaction.channel.id}`);
+        ticket = TicketManager.getTicketByChannel(interaction.channel.id);
+      }
       
       if (!ticket) {
-        console.warn(`[TICKET] Ticket not found: ${ticketId}`);
+        console.warn(`[TICKET] Ticket not found: ${ticketId} (channel: ${interaction.channel?.id || 'N/A'})`);
         await interaction.reply({
-          content: `❌ Ticket not found: ${ticketId}`,
+          content: `❌ Ticket not found: ${ticketId}\n\n**Note:** This ticket may have been closed or deleted. If you believe this is an error, please contact an administrator.`,
           ephemeral: true
         });
         return;
