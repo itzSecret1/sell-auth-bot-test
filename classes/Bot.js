@@ -3036,110 +3036,111 @@ export class Bot {
         return;
       }
 
-    try {
-      if (stepName.includes('role')) {
-        const role = await interaction.guild.roles.fetch(value);
-        if (!role) {
-          await interaction.reply({
-            content: '❌ The role does not exist in this server.',
-            ephemeral: true
-          });
-          return;
+      try {
+        if (stepName.includes('role')) {
+          const role = await interaction.guild.roles.fetch(value);
+          if (!role) {
+            await interaction.reply({
+              content: '❌ The role does not exist in this server.',
+              ephemeral: true
+            });
+            return;
+          }
+          const configKey = stepName === 'admin_role' ? 'adminRoleId' :
+                           stepName === 'staff_role' ? 'staffRoleId' :
+                           stepName === 'customer_role' ? 'customerRoleId' :
+                           stepName === 'member_role' ? 'memberRoleId' :
+                           stepName === 'viewer_role' ? 'viewerRoleId' :
+                           'trialAdminRoleId';
+          session.config[configKey] = value;
+        } else {
+          const channel = await interaction.guild.channels.fetch(value);
+          if (!channel) {
+            await interaction.reply({
+              content: '❌ The channel does not exist in this server.',
+              ephemeral: true
+            });
+            return;
+          }
+          // Verify category type for application_review_category
+          if (stepName === 'application_review_category' && channel.type !== 4) {
+            await interaction.reply({
+              content: '❌ The application review category must be a category channel.',
+              ephemeral: true
+            });
+            return;
+          }
+          const configKey = stepName === 'log_channel' ? 'logChannelId' :
+                           stepName === 'transcript_channel' ? 'transcriptChannelId' :
+                           stepName === 'rating_channel' ? 'ratingChannelId' :
+                           stepName === 'spam_channel' ? 'spamChannelId' :
+                           stepName === 'bot_status_channel' ? 'botStatusChannelId' :
+                           stepName === 'automod_channel' ? 'automodChannelId' :
+                           stepName === 'backup_channel' ? 'backupChannelId' :
+                           stepName === 'weekly_reports_channel' ? 'weeklyReportsChannelId' :
+                           stepName === 'accept_channel' ? 'acceptChannelId' :
+                           stepName === 'staff_rating_support_channel' ? 'staffRatingSupportChannelId' :
+                           stepName === 'staff_feedbacks_channel' ? 'staffFeedbacksChannelId' :
+                           stepName === 'vouches_channel' ? 'vouchesChannelId' :
+                           stepName === 'verification_channel' ? 'verificationChannelId' :
+                           stepName === 'welcome_channel' ? 'welcomeChannelId' :
+                           stepName === 'application_review_category' ? 'applicationReviewCategoryId' :
+                           'channelId';
+          session.config[configKey] = value;
         }
-        const configKey = stepName === 'admin_role' ? 'adminRoleId' :
-                         stepName === 'staff_role' ? 'staffRoleId' :
-                         stepName === 'customer_role' ? 'customerRoleId' :
-                         stepName === 'member_role' ? 'memberRoleId' :
-                         stepName === 'viewer_role' ? 'viewerRoleId' :
-                         'trialAdminRoleId';
-        session.config[configKey] = value;
-      } else {
-        const channel = await interaction.guild.channels.fetch(value);
-        if (!channel) {
-          await interaction.reply({
-            content: '❌ The channel does not exist in this server.',
-            ephemeral: true
-          });
-          return;
-        }
-        // Verify category type for application_review_category
-        if (stepName === 'application_review_category' && channel.type !== 4) {
-          await interaction.reply({
-            content: '❌ The application review category must be a category channel.',
-            ephemeral: true
-          });
-          return;
-        }
-        const configKey = stepName === 'log_channel' ? 'logChannelId' :
-                         stepName === 'transcript_channel' ? 'transcriptChannelId' :
-                         stepName === 'rating_channel' ? 'ratingChannelId' :
-                         stepName === 'spam_channel' ? 'spamChannelId' :
-                         stepName === 'bot_status_channel' ? 'botStatusChannelId' :
-                         stepName === 'automod_channel' ? 'automodChannelId' :
-                         stepName === 'backup_channel' ? 'backupChannelId' :
-                         stepName === 'weekly_reports_channel' ? 'weeklyReportsChannelId' :
-                         stepName === 'accept_channel' ? 'acceptChannelId' :
-                         stepName === 'staff_rating_support_channel' ? 'staffRatingSupportChannelId' :
-                         stepName === 'staff_feedbacks_channel' ? 'staffFeedbacksChannelId' :
-                         stepName === 'vouches_channel' ? 'vouchesChannelId' :
-                         stepName === 'verification_channel' ? 'verificationChannelId' :
-                         stepName === 'welcome_channel' ? 'welcomeChannelId' :
-                         stepName === 'application_review_category' ? 'applicationReviewCategoryId' :
-                         'channelId';
-        session.config[configKey] = value;
+      } catch (error) {
+        await interaction.reply({
+          content: '❌ Error verifying the ID. Make sure the role/channel exists and the bot has access.',
+          ephemeral: true
+        });
+        return;
       }
-    } catch (error) {
-      await interaction.reply({
-        content: '❌ Error verifying the ID. Make sure the role/channel exists and the bot has access.',
-        ephemeral: true
-      });
-      return;
-    }
 
-    try {
-      const stepData = SetupWizard.getStepEmbed(session.step, session);
-      
-      // Verificar si la interacción ya fue respondida
-      if (interaction.replied || interaction.deferred) {
-        await interaction.editReply({
-          content: '✅ Configuration saved!',
-          embeds: [stepData.embed],
-          components: [stepData.buttons]
-        }).catch(() => {
-          // Si falla editReply, intentar followUp
-          interaction.followUp({
+      try {
+        const stepData = SetupWizard.getStepEmbed(session.step, session);
+        
+        // Verificar si la interacción ya fue respondida
+        if (interaction.replied || interaction.deferred) {
+          await interaction.editReply({
+            content: '✅ Configuration saved!',
+            embeds: [stepData.embed],
+            components: [stepData.buttons]
+          }).catch(() => {
+            // Si falla editReply, intentar followUp
+            interaction.followUp({
+              content: '✅ Configuration saved!',
+              embeds: [stepData.embed],
+              components: [stepData.buttons],
+              ephemeral: true
+            }).catch(err => {
+              console.error('[SETUP] Error responding to interaction:', err);
+            });
+          });
+        } else {
+          await interaction.reply({
             content: '✅ Configuration saved!',
             embeds: [stepData.embed],
             components: [stepData.buttons],
             ephemeral: true
-          }).catch(err => {
-            console.error('[SETUP] Error responding to interaction:', err);
           });
-        });
-      } else {
-        await interaction.reply({
-          content: '✅ Configuration saved!',
-          embeds: [stepData.embed],
-          components: [stepData.buttons],
-          ephemeral: true
-        });
-      }
-    } catch (error) {
-      console.error('[SETUP] Error in handleSetupModal response:', error);
-      // Intentar responder con un mensaje simple si falla todo
-      try {
-        if (!interaction.replied && !interaction.deferred) {
-          await interaction.reply({
-            content: '✅ Configuration saved! (Error showing next step)',
-            ephemeral: true
-          });
-        } else {
-          await interaction.editReply({
-            content: '✅ Configuration saved! (Error showing next step)'
-          }).catch(() => {});
         }
-      } catch (finalError) {
-        console.error('[SETUP] Final error handling interaction:', finalError);
+      } catch (error) {
+        console.error('[SETUP] Error in handleSetupModal response:', error);
+        // Intentar responder con un mensaje simple si falla todo
+        try {
+          if (!interaction.replied && !interaction.deferred) {
+            await interaction.reply({
+              content: '✅ Configuration saved! (Error showing next step)',
+              ephemeral: true
+            });
+          } else {
+            await interaction.editReply({
+              content: '✅ Configuration saved! (Error showing next step)'
+            }).catch(() => {});
+          }
+        } catch (finalError) {
+          console.error('[SETUP] Final error handling interaction:', finalError);
+        }
       }
     }
   }
