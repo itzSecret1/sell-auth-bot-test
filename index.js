@@ -1,13 +1,13 @@
 // Version: 2025-11-25T19:07:26.405Z
 import dotenv from 'dotenv';
+dotenv.config();
+
 import express from 'express';
 import { Client, GatewayIntentBits } from 'discord.js';
 import { Bot } from './classes/Bot.js';
 import { Api } from './classes/Api.js';
 import { config } from './utils/config.js';
 import oauthRouter from './routes/oauth.js';
-
-dotenv.config();
 
 // Setup OAuth2 callback server (for Restorecord-style authorization)
 const oauthApp = express();
