@@ -156,10 +156,21 @@ OAUTH_REDIRECT_URI=https://tu-app.kmv.com/oauth/callback
 5. Haz clic en **Reset Secret** y copia el **Client Secret**
 
 ### 4. OAUTH_REDIRECT_URI (Para OAuth2)
-1. Despliega tu bot en KMV
-2. KMV te dará una URL automáticamente (ej: `https://tu-app.kmv.com`)
-3. Agrega `/oauth/callback` al final: `https://tu-app.kmv.com/oauth/callback`
-4. Agrega esta URL en Discord Developer Portal → OAuth2 → Redirects
+
+**Opción A: Si KMV te da un dominio:**
+1. KMV te dará una URL automáticamente (ej: `https://tu-app.kmv.com`)
+2. Agrega `/oauth/callback` al final: `https://tu-app.kmv.com/oauth/callback`
+3. Agrega esta URL en Discord Developer Portal → OAuth2 → Redirects
+
+**Opción B: Usando ngrok (recomendado si no tienes dominio):**
+1. Instala ngrok en tu servidor KMV (ver `NGROK_SETUP.md` para instrucciones detalladas)
+2. Ejecuta `ngrok http 3000` en tu servidor KMV
+3. Copia la URL que ngrok te da (ej: `https://abc123.ngrok-free.app`)
+4. Agrega `/oauth/callback` al final: `https://abc123.ngrok-free.app/oauth/callback`
+5. Agrega esta URL en Discord Developer Portal → OAuth2 → Redirects
+6. Configura `OAUTH_REDIRECT_URI` en KMV con la misma URL
+
+**Nota:** Con ngrok gratuito, la URL cambia cada vez que reinicias. Considera usar un plan de pago para una URL fija.
 
 ---
 
