@@ -3,11 +3,13 @@
  * Uses immediate acknowledgement + async processing with proper Promise handling
  */
 
+import { MessageFlags } from 'discord.js';
+
 export async function quickReply(interaction, processingFn) {
   try {
     // Step 1: IMMEDIATE response (within 1 second)
     if (!interaction.deferred && !interaction.replied) {
-      await interaction.deferReply({ ephemeral: true }).catch(() => {});
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral }).catch(() => {});
     }
 
     // Step 2: Send initial acknowledgment

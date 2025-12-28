@@ -2,13 +2,15 @@
  * Centralized Discord interaction helpers
  */
 
+import { MessageFlags } from 'discord.js';
+
 /**
  * Defer reply safely
  */
 export async function safeDefer(interaction, ephemeral = true) {
   try {
     if (!interaction.deferred && !interaction.replied) {
-      await interaction.deferReply({ ephemeral });
+      await interaction.deferReply({ flags: ephemeral ? MessageFlags.Ephemeral : 0 });
     }
   } catch (error) {
     console.error('[DISCORD] Defer error:', error.message);
@@ -23,7 +25,7 @@ export async function safeEditReply(interaction, options) {
     if (interaction.deferred || interaction.replied) {
       await interaction.editReply(options);
     } else {
-      await interaction.reply({ ...options, ephemeral: true });
+      await interaction.reply({ ...options, flags: MessageFlags.Ephemeral });
     }
   } catch (error) {
     console.error('[DISCORD] Edit reply error:', error.message);
