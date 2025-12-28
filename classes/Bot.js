@@ -1996,7 +1996,7 @@ export class Bot {
         }
         
         // Para otras categorías, crear directamente
-        await interaction.deferReply({ ephemeral: true });
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
         
         const guild = interaction.guild;
         const user = interaction.user;

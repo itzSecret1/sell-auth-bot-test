@@ -1,4 +1,4 @@
-import { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder } from 'discord.js';
+import { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder, MessageFlags } from 'discord.js';
 import { readFileSync, existsSync } from 'fs';
 
 export default {
@@ -100,7 +100,7 @@ export default {
       console.error('[DASHBOARD] Error:', error.message);
       await interaction.editReply({
         content: `❌ Dashboard error: ${error.message}`,
-        ephemeral: true
+        flags: MessageFlags.Ephemeral
       });
     }
   }
