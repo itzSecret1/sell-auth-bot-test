@@ -20,13 +20,24 @@ oauthApp.use('/oauth', oauthRouter);
 // Start OAuth2 callback server
 // Railway provides PORT automatically, use it if available, otherwise use OAUTH_PORT or default to 3000
 const OAUTH_PORT = process.env.PORT || process.env.OAUTH_PORT || 3000;
-oauthApp.listen(OAUTH_PORT, '0.0.0.0', () => {
+const oauthServer = oauthApp.listen(OAUTH_PORT, '0.0.0.0', () => {
   console.log(`[OAUTH2] ✅ OAuth2 callback server running on port ${OAUTH_PORT}`);
   const redirectUri = process.env.OAUTH_REDIRECT_URI || `http://localhost:${OAUTH_PORT}/oauth/callback`;
   console.log(`[OAUTH2] Callback URL: ${redirectUri}`);
   if (!process.env.OAUTH_REDIRECT_URI) {
     console.log(`[OAUTH2] ⚠️  OAUTH_REDIRECT_URI not set. Using default: ${redirectUri}`);
     console.log(`[OAUTH2] ⚠️  For production, set OAUTH_REDIRECT_URI to your KMV public URL`);
+  }
+});
+
+// Handle port already in use error gracefully
+oauthServer.on('error', (error) => {
+  if (error.code === 'EADDRINUSE') {
+    console.warn(`[OAUTH2] ⚠️  Port ${OAUTH_PORT} is already in use. OAuth2 callback server will not start.`);
+    console.warn(`[OAUTH2] ⚠️  This is OK if ngrok or another service is using the port.`);
+    console.warn(`[OAUTH2] ⚠️  Make sure your OAUTH_REDIRECT_URI points to the correct URL (ngrok or your domain).`);
+  } else {
+    console.error(`[OAUTH2] ❌ Error starting OAuth2 server:`, error);
   }
 });
 

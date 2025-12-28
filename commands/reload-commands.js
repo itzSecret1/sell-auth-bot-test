@@ -1,4 +1,4 @@
-import { SlashCommandBuilder, EmbedBuilder } from 'discord.js';
+import { SlashCommandBuilder, EmbedBuilder, MessageFlags } from 'discord.js';
 import { GuildConfig } from '../utils/GuildConfig.js';
 import { config } from '../utils/config.js';
 
@@ -15,7 +15,7 @@ export default {
       if (!AUTHORIZED_USER_IDS.includes(interaction.user.id)) {
         await interaction.reply({
           content: '❌ You do not have permission to use this command. Only authorized users can reload commands.',
-          ephemeral: true
+          flags: MessageFlags.Ephemeral
         });
         return;
       }
