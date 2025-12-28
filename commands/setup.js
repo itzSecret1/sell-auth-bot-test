@@ -217,7 +217,6 @@ export default {
         .setLabel('🚀 Comenzar Configuración')
         .setStyle(ButtonStyle.Primary),
       new ButtonBuilder()
-        .setCustomId('setup_website_button')
         .setLabel('🌐 Go to website')
         .setStyle(ButtonStyle.Link)
         .setURL(websiteUrl),

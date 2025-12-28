@@ -235,7 +235,15 @@ export class SetupWizard {
 
     const buttons = new ActionRowBuilder();
     
-    if (currentStep.buttonId.includes('role')) {
+    // Special handling for website_link - it uses a modal, not a link button
+    if (currentStep.buttonId === 'setup_website_link') {
+      buttons.addComponents(
+        new ButtonBuilder()
+          .setCustomId(currentStep.buttonId)
+          .setLabel('Enter Website URL')
+          .setStyle(ButtonStyle.Primary)
+      );
+    } else if (currentStep.buttonId.includes('role')) {
       buttons.addComponents(
         new ButtonBuilder()
           .setCustomId(currentStep.buttonId)

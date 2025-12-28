@@ -3111,7 +3111,7 @@ export class Bot {
               content: '✅ Configuration saved!',
               embeds: [stepData.embed],
               components: [stepData.buttons],
-              ephemeral: true
+              flags: MessageFlags.Ephemeral
             }).catch(err => {
               console.error('[SETUP] Error responding to interaction:', err);
             });
@@ -3121,7 +3121,7 @@ export class Bot {
             content: '✅ Configuration saved!',
             embeds: [stepData.embed],
             components: [stepData.buttons],
-            ephemeral: true
+            flags: MessageFlags.Ephemeral
           });
         }
       } catch (error) {
@@ -3131,7 +3131,7 @@ export class Bot {
           if (!interaction.replied && !interaction.deferred) {
             await interaction.reply({
               content: '✅ Configuration saved! (Error showing next step)',
-              ephemeral: true
+              flags: MessageFlags.Ephemeral
             });
           } else {
             await interaction.editReply({
