@@ -1089,7 +1089,7 @@ export class Bot {
           if (!interaction.replied && !interaction.deferred) {
             await interaction.reply({
               content: `❌ Error: ${error.message}`,
-              ephemeral: true
+              flags: MessageFlags.Ephemeral
             }).catch(() => {});
           }
         }
@@ -1140,7 +1140,7 @@ export class Bot {
           if (!interaction.replied && !interaction.deferred) {
             await interaction.reply({
               content: `❌ Error: ${error.message}`,
-              ephemeral: true
+              flags: MessageFlags.Ephemeral
             }).catch(() => {});
           }
         }
@@ -1167,7 +1167,7 @@ export class Bot {
           if (!interaction.replied && !interaction.deferred) {
             await interaction.reply({
               content: `❌ Error: ${error.message}`,
-              ephemeral: true
+              flags: MessageFlags.Ephemeral
             }).catch(() => {});
           }
         }
@@ -1188,7 +1188,7 @@ export class Bot {
           console.log(`[SPAM-DETECTOR] ⚠️ Protected user ${protectedUserId} attempted spam - BLOCKED ban`);
           await interaction.reply({
             content: '⚠️ **Protected User**\n\nThis user is protected and cannot be banned, even for spam detection.',
-            ephemeral: true
+            flags: MessageFlags.Ephemeral
           });
           return;
         }
@@ -1264,7 +1264,7 @@ export class Bot {
           const timeLeft = (expirationTime - now) / 1000;
           return interaction.reply({
             content: `You need to wait ${timeLeft.toFixed(1)} more second(s) before reusing the \`${interaction.commandName}\` command.`,
-            ephemeral: true
+            flags: MessageFlags.Ephemeral
           });
         }
       }
@@ -1283,7 +1283,7 @@ export class Bot {
           if (targetUser.id === protectedUserId) {
             await interaction.reply({
               content: '❌ **Protected User**\n\nThis user cannot be banned, kicked, muted, or timed out by anyone except Discord itself.',
-              ephemeral: true
+              flags: MessageFlags.Ephemeral
             });
             return;
           }
@@ -1292,7 +1292,7 @@ export class Bot {
           if (targetUser.id === botId) {
             await interaction.reply({
               content: '❌ **Bot Protection**\n\nThe bot cannot be banned, kicked, muted, or timed out.',
-              ephemeral: true
+              flags: MessageFlags.Ephemeral
             });
             return;
           }
@@ -1308,9 +1308,9 @@ export class Bot {
       } catch (error) {
         console.error(error);
         if (error.message.includes('permission')) {
-          interaction.reply({ content: error.toString(), ephemeral: true }).catch(console.error);
+          interaction.reply({ content: error.toString(), flags: MessageFlags.Ephemeral }).catch(console.error);
         } else {
-          interaction.reply({ content: 'An error occurred while executing the command.', ephemeral: true }).catch(console.error);
+          interaction.reply({ content: 'An error occurred while executing the command.', flags: MessageFlags.Ephemeral }).catch(console.error);
         }
       }
     });
@@ -1429,7 +1429,7 @@ export class Bot {
 
   async handleVerificationButton(interaction) {
     try {
-      await interaction.deferReply({ ephemeral: true });
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
       
       const guild = interaction.guild;
       const user = interaction.user;
@@ -1521,7 +1521,7 @@ export class Bot {
       if (!interaction.replied && !interaction.deferred) {
         await interaction.reply({
           content: '❌ An error occurred during verification. Please try again later.',
-          ephemeral: true
+          flags: MessageFlags.Ephemeral
         }).catch(() => {});
       } else {
         await interaction.editReply({
@@ -1546,7 +1546,7 @@ export class Bot {
     if (!category) {
       await interaction.reply({
         content: '❌ Invalid ticket category selected',
-        ephemeral: true
+        flags: MessageFlags.Ephemeral
       });
       return;
     }
@@ -1582,7 +1582,7 @@ export class Bot {
     }
     
     // Para otras categorías, crear directamente
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     
     const guild = interaction.guild;
     const user = interaction.user;
@@ -1625,7 +1625,7 @@ export class Bot {
       if (!appsData.isOpen) {
         await interaction.reply({
           content: '❌ Staff applications are currently closed.',
-          ephemeral: true
+          flags: MessageFlags.Ephemeral
         });
         return;
       }
@@ -1638,7 +1638,7 @@ export class Bot {
       if (existingApp) {
         await interaction.reply({
           content: '❌ You already have a pending application. Please wait for it to be reviewed.',
-          ephemeral: true
+          flags: MessageFlags.Ephemeral
         });
         return;
       }
@@ -1697,14 +1697,14 @@ export class Bot {
       console.error('[STAFF-APP] Error showing modal:', error);
       await interaction.reply({
         content: '❌ Error opening application form.',
-        ephemeral: true
+        flags: MessageFlags.Ephemeral
       }).catch(() => {});
     }
   }
 
   async handleStaffApplicationModal(interaction) {
     try {
-      await interaction.deferReply({ ephemeral: true });
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
       const { readFileSync, writeFileSync, existsSync } = await import('fs');
       const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, PermissionFlagsBits } = await import('discord.js');
@@ -1867,7 +1867,7 @@ export class Bot {
 
   async handleStaffApplicationReview(interaction) {
     try {
-      await interaction.deferReply({ ephemeral: true });
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
       const { readFileSync, writeFileSync, existsSync } = await import('fs');
       const { EmbedBuilder } = await import('discord.js');
@@ -2128,7 +2128,7 @@ export class Bot {
       if (!result.success) {
         await interaction.followUp({
           content: result.message,
-          ephemeral: true
+          flags: MessageFlags.Ephemeral
         });
       }
       return;
@@ -2213,7 +2213,7 @@ export class Bot {
       if (!hasStaffRole && !hasAdminRole && !isTicketCreator) {
         await interaction.reply({
           content: '❌ Only staff or the ticket creator can close tickets',
-          ephemeral: true
+          flags: MessageFlags.Ephemeral
         });
         return;
       }
@@ -2301,7 +2301,7 @@ export class Bot {
       } catch (error) {
         await interaction.reply({
           content: `❌ ${error.message}`,
-          ephemeral: true
+          flags: MessageFlags.Ephemeral
         }).catch(() => {});
       }
       return;
@@ -2319,7 +2319,7 @@ export class Bot {
       } catch (error) {
         await interaction.reply({
           content: `❌ ${error.message}`,
-          ephemeral: true
+          flags: MessageFlags.Ephemeral
         }).catch(() => {});
       }
       return;
@@ -2411,7 +2411,7 @@ export class Bot {
       console.error('[VERIFIED-LIST-BUTTON] Error:', error);
       await interaction.reply({
         content: `❌ Error: ${error.message}`,
-        ephemeral: true
+        flags: MessageFlags.Ephemeral
       }).catch(() => {});
     }
   }
@@ -2448,7 +2448,7 @@ export class Bot {
       if (!giveaway || giveaway.ended) {
         await interaction.reply({
           content: '❌ This giveaway has ended',
-          ephemeral: true
+          flags: MessageFlags.Ephemeral
         });
         return;
       }
@@ -2456,7 +2456,7 @@ export class Bot {
       if (Date.now() >= giveaway.endTime) {
         await interaction.reply({
           content: '❌ This giveaway has ended',
-          ephemeral: true
+          flags: MessageFlags.Ephemeral
         });
         return;
       }
@@ -2464,7 +2464,7 @@ export class Bot {
       if (giveaway.participants.includes(interaction.user.id)) {
         await interaction.reply({
           content: '✅ You are already participating in this giveaway!',
-          ephemeral: true
+          flags: MessageFlags.Ephemeral
         });
         return;
       }
@@ -2474,14 +2474,14 @@ export class Bot {
 
       await interaction.reply({
         content: '🎉 You have joined the giveaway! Good luck!',
-        ephemeral: true
+        flags: MessageFlags.Ephemeral
       });
 
     } catch (error) {
       console.error('[GIVEAWAY] Error handling button:', error);
       await interaction.reply({
         content: '❌ Error joining giveaway',
-        ephemeral: true
+        flags: MessageFlags.Ephemeral
       }).catch(() => {});
     }
   }
@@ -2538,7 +2538,7 @@ export class Bot {
       if (!invoiceId || invoiceId.trim().length === 0) {
         await interaction.reply({
           content: '❌ Invoice ID is required',
-          ephemeral: true
+          flags: MessageFlags.Ephemeral
         });
         return;
       }
@@ -2573,12 +2573,12 @@ export class Bot {
 
         await interaction.reply({
           embeds: [instructionsEmbed],
-          ephemeral: true
+          flags: MessageFlags.Ephemeral
         });
         return;
       }
 
-      await interaction.deferReply({ ephemeral: true });
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
       
       const guild = interaction.guild;
       const user = interaction.user;
@@ -2730,7 +2730,7 @@ export class Bot {
         if (!closeReason || closeReason.trim().length === 0) {
           await interaction.followUp({
             content: '❌ Reason is required when closing your own ticket',
-            ephemeral: true
+            flags: MessageFlags.Ephemeral
           });
           return;
         }
@@ -2847,7 +2847,7 @@ export class Bot {
         if (!closeReason || closeReason.trim().length === 0) {
           await interaction.followUp({
             content: '❌ Reason is required for staff members',
-            ephemeral: true
+            flags: MessageFlags.Ephemeral
           });
           return;
         }
@@ -3004,7 +3004,7 @@ export class Bot {
     if (!session) {
       await interaction.reply({
         content: '❌ No hay una sesión de configuración activa.',
-        ephemeral: true
+        flags: MessageFlags.Ephemeral
       });
       return;
     }
@@ -3017,7 +3017,7 @@ export class Bot {
       if (!value || value.trim().length === 0) {
         await interaction.reply({
           content: '❌ Website URL cannot be empty.',
-          ephemeral: true
+          flags: MessageFlags.Ephemeral
         });
         return;
       }
@@ -3027,7 +3027,7 @@ export class Bot {
       } catch (urlError) {
         await interaction.reply({
           content: '❌ Invalid URL format. Please enter a valid URL (e.g., https://example.com).',
-          ephemeral: true
+          flags: MessageFlags.Ephemeral
         });
         return;
       }
@@ -3040,7 +3040,7 @@ export class Bot {
     if (!/^\d+$/.test(value)) {
       await interaction.reply({
         content: '❌ The ID must be a valid number.',
-        ephemeral: true
+        flags: MessageFlags.Ephemeral
       });
       return;
     }
@@ -3051,7 +3051,7 @@ export class Bot {
         if (!role) {
           await interaction.reply({
             content: '❌ The role does not exist in this server.',
-            ephemeral: true
+            flags: MessageFlags.Ephemeral
           });
           return;
         }
@@ -3067,7 +3067,7 @@ export class Bot {
         if (!channel) {
           await interaction.reply({
             content: '❌ The channel does not exist in this server.',
-            ephemeral: true
+            flags: MessageFlags.Ephemeral
           });
           return;
         }
@@ -3075,7 +3075,7 @@ export class Bot {
           if (stepName === 'application_review_category' && channel.type !== 4) {
             await interaction.reply({
               content: '❌ The application review category must be a category channel.',
-              ephemeral: true
+              flags: MessageFlags.Ephemeral
             });
             return;
           }
@@ -3100,7 +3100,7 @@ export class Bot {
     } catch (error) {
       await interaction.reply({
         content: '❌ Error verifying the ID. Make sure the role/channel exists and the bot has access.',
-        ephemeral: true
+        flags: MessageFlags.Ephemeral
       });
       return;
     }
