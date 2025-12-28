@@ -3108,21 +3108,35 @@ export class Bot {
     try {
       const stepData = SetupWizard.getStepEmbed(session.step, session);
       
+      // Validar que los botones no tengan conflictos (URL y customId)
+      if (stepData.buttons && stepData.buttons.components) {
+        for (const button of stepData.buttons.components) {
+          if (button.data && button.data.url && button.data.custom_id) {
+            console.error('[SETUP] ⚠️  Button has both URL and customId:', button.data);
+            // Remover el customId si tiene URL (botones Link no pueden tener customId)
+            if (button.data.style === 5) { // Link button style
+              button.data.custom_id = undefined;
+            }
+          }
+        }
+      }
+      
       // Verificar si la interacción ya fue respondida
       if (interaction.replied || interaction.deferred) {
         await interaction.editReply({
           content: '✅ Configuration saved!',
           embeds: [stepData.embed],
           components: [stepData.buttons]
-        }).catch(() => {
+        }).catch((err) => {
+          console.error('[SETUP] Error in editReply:', err.message);
           // Si falla editReply, intentar followUp
           interaction.followUp({
             content: '✅ Configuration saved!',
             embeds: [stepData.embed],
             components: [stepData.buttons],
               flags: MessageFlags.Ephemeral
-          }).catch(err => {
-            console.error('[SETUP] Error responding to interaction:', err);
+          }).catch(followErr => {
+            console.error('[SETUP] Error in followUp:', followErr.message);
           });
         });
       } else {

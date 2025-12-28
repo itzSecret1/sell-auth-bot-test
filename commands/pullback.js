@@ -1,4 +1,4 @@
-import { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
+import { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags } from 'discord.js';
 import { GuildConfig } from '../utils/GuildConfig.js';
 import { VerifiedUsers } from '../utils/VerifiedUsers.js';
 import { OAuth2Manager } from '../utils/OAuth2Manager.js';
@@ -26,7 +26,7 @@ export default {
 
   async execute(interaction) {
     try {
-      await interaction.deferReply({ ephemeral: true });
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
       const targetUser = interaction.options.getUser('user');
       const addRole = interaction.options.getBoolean('add_role') !== false; // Default true

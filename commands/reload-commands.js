@@ -20,7 +20,7 @@ export default {
         return;
       }
 
-      await interaction.deferReply({ ephemeral: true });
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
       const guild = interaction.guild;
       const bot = interaction.client;
