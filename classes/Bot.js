@@ -133,7 +133,7 @@ export class Bot {
         if (!memberRole) return;
         
         // Verificar si el usuario está en la lista de verificados
-        const { VerifiedUsers } = await import('../utils/VerifiedUsers.js');
+          const { VerifiedUsers } = await import('../utils/VerifiedUsers.js');
         const isVerified = VerifiedUsers.isVerified(member.user.id);
         
         if (isVerified) {
@@ -144,22 +144,22 @@ export class Bot {
           }
           
           // Actualizar información
-          VerifiedUsers.addVerifiedUser(
-            member.user.id,
-            member.user.username,
-            member.user.discriminator,
-            member.user.tag,
-            member.guild.id
-          );
+            VerifiedUsers.addVerifiedUser(
+              member.user.id,
+              member.user.username,
+              member.user.discriminator,
+              member.user.tag,
+              member.guild.id
+            );
         } else {
           // Usuario nuevo - guardar como verificado si hace clic en verify
           // (esto se maneja en el botón de verificación)
-        }
+          }
       } catch (error) {
         console.error('[VERIFICATION] Error in GuildMemberAdd:', error);
-      }
+        }
     });
-
+        
     // Automatic pullback system: when a verified user leaves the server (Restorecord-style with OAuth2)
     this.client.on(Events.GuildMemberRemove, async (member) => {
       try {
@@ -513,7 +513,7 @@ export class Bot {
               // Log para comandos importantes
               if (['vouch', 'setup', 'vouches-restore', 'vouches-backup'].includes(cmdName)) {
                 console.log(`[BOT] ✅ Loaded command: ${cmdName} (from ${file})`);
-              }
+            }
             } else {
               console.warn(`[BOT] ⚠️  Duplicate command name: ${cmdName} (from ${file})`);
             }
@@ -611,15 +611,15 @@ export class Bot {
           // Log lista de comandos que se van a registrar
           const commandNames = validCommands.map(c => c.name).sort();
           console.log(`[BOT] 📋 Commands to register: ${commandNames.join(', ')}`);
-          if (commandNames.includes('vouches-restore')) {
-            console.log(`[BOT] ✅ vouches-restore found in command list`);
+          
+          // Verificar comandos críticos
+          const criticalCommands = ['vouch', 'setup', 'vouches-restore', 'vouches-backup'];
+          for (const cmdName of criticalCommands) {
+            if (commandNames.includes(cmdName)) {
+              console.log(`[BOT] ✅ ${cmdName} found in command list`);
           } else {
-            console.warn(`[BOT] ⚠️  vouches-restore NOT found in command list!`);
+              console.warn(`[BOT] ⚠️  ${cmdName} NOT found in command list!`);
           }
-          if (commandNames.includes('vouches-backup')) {
-            console.log(`[BOT] ✅ vouches-backup found in command list`);
-          } else {
-            console.warn(`[BOT] ⚠️  vouches-backup NOT found in command list!`);
           }
           
           // DIAGNÓSTICO COMPLETO ANTES DE REGISTRAR
@@ -738,9 +738,15 @@ export class Bot {
                 console.log(`[BOT] ✅ No duplicate commands found`);
               }
               
-              if (registeredNames.includes('vouches-restore')) {
-                const vouchesRestore = putResponse.data.find(c => c.name === 'vouches-restore');
-                console.log(`[BOT] 🎯 vouches-restore successfully registered! ID: ${vouchesRestore.id}`);
+              // Verificar comandos críticos registrados
+              const criticalCommands = ['vouch', 'setup', 'vouches-restore', 'vouches-backup'];
+              for (const cmdName of criticalCommands) {
+                if (registeredNames.includes(cmdName)) {
+                  const cmd = putResponse.data.find(c => c.name === cmdName);
+                  console.log(`[BOT] 🎯 ${cmdName} successfully registered! ID: ${cmd.id}`);
+                } else {
+                  console.warn(`[BOT] ⚠️  ${cmdName} was NOT registered in PUT batch!`);
+                }
               }
               
               return; // Éxito con PUT batch, salir
@@ -814,9 +820,9 @@ export class Bot {
                   const cmdTime = ((Date.now() - cmdStartTime) / 1000).toFixed(2);
                   console.log(`[BOT] ✅ [${i + 1}/${totalCommands}] Registered: ${cmd.name} (${cmdTime}s) - ID: ${created.id}`);
                   
-                  // Verificar vouches-restore específicamente
-                  if (cmd.name === 'vouches-restore') {
-                    console.log(`[BOT] 🎯 vouches-restore successfully registered! ID: ${created.id}`);
+                  // Verificar comandos críticos específicamente
+                  if (['vouch', 'setup', 'vouches-restore', 'vouches-backup'].includes(cmd.name)) {
+                    console.log(`[BOT] 🎯 ${cmd.name} successfully registered! ID: ${created.id}`);
                   }
                   
                   // Delay entre comandos para evitar rate limits (500ms)
@@ -3027,44 +3033,44 @@ export class Bot {
       }
       session.config.websiteLink = value.trim();
     } else {
-      const value = stepName.includes('role') 
-        ? interaction.fields.getTextInputValue('role_id')
-        : interaction.fields.getTextInputValue('channel_id');
+    const value = stepName.includes('role') 
+      ? interaction.fields.getTextInputValue('role_id')
+      : interaction.fields.getTextInputValue('channel_id');
 
-      if (!/^\d+$/.test(value)) {
-        await interaction.reply({
-          content: '❌ The ID must be a valid number.',
-          ephemeral: true
-        });
-        return;
-      }
+    if (!/^\d+$/.test(value)) {
+      await interaction.reply({
+        content: '❌ The ID must be a valid number.',
+        ephemeral: true
+      });
+      return;
+    }
 
-      try {
-        if (stepName.includes('role')) {
-          const role = await interaction.guild.roles.fetch(value);
-          if (!role) {
-            await interaction.reply({
-              content: '❌ The role does not exist in this server.',
-              ephemeral: true
-            });
-            return;
-          }
-          const configKey = stepName === 'admin_role' ? 'adminRoleId' :
-                           stepName === 'staff_role' ? 'staffRoleId' :
-                           stepName === 'customer_role' ? 'customerRoleId' :
-                           stepName === 'member_role' ? 'memberRoleId' :
-                           stepName === 'viewer_role' ? 'viewerRoleId' :
-                           'trialAdminRoleId';
-          session.config[configKey] = value;
-        } else {
-          const channel = await interaction.guild.channels.fetch(value);
-          if (!channel) {
-            await interaction.reply({
-              content: '❌ The channel does not exist in this server.',
-              ephemeral: true
-            });
-            return;
-          }
+    try {
+      if (stepName.includes('role')) {
+        const role = await interaction.guild.roles.fetch(value);
+        if (!role) {
+          await interaction.reply({
+            content: '❌ The role does not exist in this server.',
+            ephemeral: true
+          });
+          return;
+        }
+        const configKey = stepName === 'admin_role' ? 'adminRoleId' :
+                         stepName === 'staff_role' ? 'staffRoleId' :
+                         stepName === 'customer_role' ? 'customerRoleId' :
+                         stepName === 'member_role' ? 'memberRoleId' :
+                         stepName === 'viewer_role' ? 'viewerRoleId' :
+                         'trialAdminRoleId';
+        session.config[configKey] = value;
+      } else {
+        const channel = await interaction.guild.channels.fetch(value);
+        if (!channel) {
+          await interaction.reply({
+            content: '❌ The channel does not exist in this server.',
+            ephemeral: true
+          });
+          return;
+        }
           // Verify category type for application_review_category
           if (stepName === 'application_review_category' && channel.type !== 4) {
             await interaction.reply({
@@ -3073,76 +3079,76 @@ export class Bot {
             });
             return;
           }
-          const configKey = stepName === 'log_channel' ? 'logChannelId' :
-                           stepName === 'transcript_channel' ? 'transcriptChannelId' :
-                           stepName === 'rating_channel' ? 'ratingChannelId' :
-                           stepName === 'spam_channel' ? 'spamChannelId' :
-                           stepName === 'bot_status_channel' ? 'botStatusChannelId' :
-                           stepName === 'automod_channel' ? 'automodChannelId' :
-                           stepName === 'backup_channel' ? 'backupChannelId' :
-                           stepName === 'weekly_reports_channel' ? 'weeklyReportsChannelId' :
-                           stepName === 'accept_channel' ? 'acceptChannelId' :
-                           stepName === 'staff_rating_support_channel' ? 'staffRatingSupportChannelId' :
-                           stepName === 'staff_feedbacks_channel' ? 'staffFeedbacksChannelId' :
-                           stepName === 'vouches_channel' ? 'vouchesChannelId' :
-                           stepName === 'verification_channel' ? 'verificationChannelId' :
+        const configKey = stepName === 'log_channel' ? 'logChannelId' :
+                         stepName === 'transcript_channel' ? 'transcriptChannelId' :
+                         stepName === 'rating_channel' ? 'ratingChannelId' :
+                         stepName === 'spam_channel' ? 'spamChannelId' :
+                         stepName === 'bot_status_channel' ? 'botStatusChannelId' :
+                         stepName === 'automod_channel' ? 'automodChannelId' :
+                         stepName === 'backup_channel' ? 'backupChannelId' :
+                         stepName === 'weekly_reports_channel' ? 'weeklyReportsChannelId' :
+                         stepName === 'accept_channel' ? 'acceptChannelId' :
+                         stepName === 'staff_rating_support_channel' ? 'staffRatingSupportChannelId' :
+                         stepName === 'staff_feedbacks_channel' ? 'staffFeedbacksChannelId' :
+                         stepName === 'vouches_channel' ? 'vouchesChannelId' :
+                         stepName === 'verification_channel' ? 'verificationChannelId' :
                            stepName === 'welcome_channel' ? 'welcomeChannelId' :
                            stepName === 'application_review_category' ? 'applicationReviewCategoryId' :
-                           'channelId';
-          session.config[configKey] = value;
-        }
-      } catch (error) {
-        await interaction.reply({
-          content: '❌ Error verifying the ID. Make sure the role/channel exists and the bot has access.',
-          ephemeral: true
-        });
-        return;
+                         'channelId';
+        session.config[configKey] = value;
       }
+    } catch (error) {
+      await interaction.reply({
+        content: '❌ Error verifying the ID. Make sure the role/channel exists and the bot has access.',
+        ephemeral: true
+      });
+      return;
+    }
 
-      try {
-        const stepData = SetupWizard.getStepEmbed(session.step, session);
-        
-        // Verificar si la interacción ya fue respondida
-        if (interaction.replied || interaction.deferred) {
-          await interaction.editReply({
-            content: '✅ Configuration saved!',
-            embeds: [stepData.embed],
-            components: [stepData.buttons]
-          }).catch(() => {
-            // Si falla editReply, intentar followUp
-            interaction.followUp({
-              content: '✅ Configuration saved!',
-              embeds: [stepData.embed],
-              components: [stepData.buttons],
-              flags: MessageFlags.Ephemeral
-            }).catch(err => {
-              console.error('[SETUP] Error responding to interaction:', err);
-            });
-          });
-        } else {
-          await interaction.reply({
+    try {
+      const stepData = SetupWizard.getStepEmbed(session.step, session);
+      
+      // Verificar si la interacción ya fue respondida
+      if (interaction.replied || interaction.deferred) {
+        await interaction.editReply({
+          content: '✅ Configuration saved!',
+          embeds: [stepData.embed],
+          components: [stepData.buttons]
+        }).catch(() => {
+          // Si falla editReply, intentar followUp
+          interaction.followUp({
             content: '✅ Configuration saved!',
             embeds: [stepData.embed],
             components: [stepData.buttons],
-            flags: MessageFlags.Ephemeral
-          });
-        }
-      } catch (error) {
-        console.error('[SETUP] Error in handleSetupModal response:', error);
-        // Intentar responder con un mensaje simple si falla todo
-        try {
-          if (!interaction.replied && !interaction.deferred) {
-            await interaction.reply({
-              content: '✅ Configuration saved! (Error showing next step)',
               flags: MessageFlags.Ephemeral
-            });
-          } else {
-            await interaction.editReply({
-              content: '✅ Configuration saved! (Error showing next step)'
-            }).catch(() => {});
-          }
-        } catch (finalError) {
-          console.error('[SETUP] Final error handling interaction:', finalError);
+          }).catch(err => {
+            console.error('[SETUP] Error responding to interaction:', err);
+          });
+        });
+      } else {
+        await interaction.reply({
+          content: '✅ Configuration saved!',
+          embeds: [stepData.embed],
+          components: [stepData.buttons],
+            flags: MessageFlags.Ephemeral
+        });
+      }
+    } catch (error) {
+      console.error('[SETUP] Error in handleSetupModal response:', error);
+      // Intentar responder con un mensaje simple si falla todo
+      try {
+        if (!interaction.replied && !interaction.deferred) {
+          await interaction.reply({
+            content: '✅ Configuration saved! (Error showing next step)',
+              flags: MessageFlags.Ephemeral
+          });
+        } else {
+          await interaction.editReply({
+            content: '✅ Configuration saved! (Error showing next step)'
+          }).catch(() => {});
+        }
+      } catch (finalError) {
+        console.error('[SETUP] Final error handling interaction:', finalError);
         }
       }
     }
