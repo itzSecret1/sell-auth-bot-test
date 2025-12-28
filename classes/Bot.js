@@ -510,10 +510,10 @@ export class Bot {
               const cmdData = command.default.data.toJSON();
               this.slashCommands.push(cmdData);
               this.slashCommandsMap.set(cmdName, command.default);
-              // Log para verificar que vouches-restore y vouches-backup se cargan
-              if (cmdName === 'vouches-restore' || cmdName === 'vouches-backup') {
+              // Log para comandos importantes
+              if (['vouch', 'setup', 'vouches-restore', 'vouches-backup'].includes(cmdName)) {
                 console.log(`[BOT] ✅ Loaded command: ${cmdName} (from ${file})`);
-            }
+              }
             } else {
               console.warn(`[BOT] ⚠️  Duplicate command name: ${cmdName} (from ${file})`);
             }
@@ -522,6 +522,7 @@ export class Bot {
           }
         } catch (err) {
           console.error(`[BOT] ❌ Error loading ${file}:`, err.message);
+          console.error(`[BOT]    Stack:`, err.stack);
         }
       }
 
