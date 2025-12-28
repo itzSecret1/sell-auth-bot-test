@@ -1,4 +1,4 @@
-import { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, PermissionFlagsBits } from 'discord.js';
+import { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, PermissionFlagsBits, MessageFlags } from 'discord.js';
 import { GuildConfig } from '../utils/GuildConfig.js';
 import { config } from '../utils/config.js';
 
@@ -18,7 +18,7 @@ export default {
 
   async execute(interaction) {
     try {
-      await interaction.deferReply({ ephemeral: true });
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
       const guildConfig = GuildConfig.getConfig(interaction.guild.id);
       const verificationChannelId = guildConfig?.verificationChannelId;
