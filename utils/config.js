@@ -12,7 +12,10 @@ let config = {
   SA_API_KEY: process.env.SA_API_KEY || '',
   SA_SHOP_ID: process.env.SA_SHOP_ID || '',
   LOG_CHANNEL_ID: process.env.LOG_CHANNEL_ID || '',
-  SHOP_URL: process.env.SHOP_URL || 'https://sellauth.com'
+  SHOP_URL: process.env.SHOP_URL || 'https://sellauth.com',
+  BOT_CLIENT_ID: process.env.BOT_CLIENT_ID || '',
+  BOT_CLIENT_SECRET: process.env.BOT_CLIENT_SECRET || '',
+  OAUTH_REDIRECT_URI: process.env.OAUTH_REDIRECT_URI || 'http://localhost:3000/oauth/callback'
 };
 
 export { config };

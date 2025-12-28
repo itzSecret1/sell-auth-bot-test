@@ -2,15 +2,16 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import { dirname, resolve } from 'path';
 import axios from 'axios';
 
-// Usar directorio de datos persistente si está configurado (para Railway Volumes)
-// En Railway, usar /data si existe, sino usar el directorio actual
+// Usar directorio de datos persistente si está configurado (para KMV Volumes/Storage)
+// En KMV, usar /data si existe, sino usar el directorio actual
 const DATA_DIR = process.env.DATA_DIR || (existsSync('/data') ? '/data' : './');
 const GUILD_CONFIG_FILE = DATA_DIR.endsWith('/') 
   ? `${DATA_DIR}guildConfigs.json`
   : `${DATA_DIR}/guildConfigs.json`;
 
-// Backup automático: también guardar en variable de entorno de Railway (si está disponible)
-const RAILWAY_ENV_BACKUP_KEY = 'GUILD_CONFIGS_BACKUP';
+// Backup automático: también guardar en variable de entorno (si está disponible)
+// Nota: El backup en variable de entorno es opcional y solo funciona si tienes acceso a la API del hosting
+const ENV_BACKUP_KEY = 'GUILD_CONFIGS_BACKUP';
 
 // Logging de la ruta del archivo para diagnóstico
 console.log(`[GUILD CONFIG] 📁 Config file path: ${GUILD_CONFIG_FILE}`);
@@ -52,7 +53,7 @@ function loadGuildConfigs() {
     }
     
     // Si no existe el archivo, intentar cargar desde backup en variable de entorno
-    const backupData = process.env[RAILWAY_ENV_BACKUP_KEY];
+    const backupData = process.env[ENV_BACKUP_KEY];
     if (backupData) {
       try {
         const parsed = JSON.parse(backupData);
@@ -163,18 +164,20 @@ function saveGuildConfigs() {
   return false;
 }
 
-// Guardar backup en variable de entorno de Railway usando la API
+// Guardar backup en variable de entorno usando la API (opcional, solo si está configurado)
 async function saveBackupAsync(data) {
   try {
-    // Valores por defecto del proyecto de Railway
-    const railwayToken = process.env.RAILWAY_TOKEN || '567c878a-6d6f-4f15-8236-7345b75afec2';
-    const projectId = process.env.RAILWAY_PROJECT_ID || 'f0ed44fd-ead6-4d32-8e31-dcaf06726015';
-    const environmentId = process.env.RAILWAY_ENVIRONMENT_ID || 'c7ed3caa-9689-4f8e-a925-845a6642ccb6';
+    // Variables opcionales para backup en variable de entorno (solo si tu hosting lo soporta)
+    const hostingToken = process.env.HOSTING_TOKEN;
+    const projectId = process.env.HOSTING_PROJECT_ID;
+    const environmentId = process.env.HOSTING_ENVIRONMENT_ID;
+    const hostingApiUrl = process.env.HOSTING_API_URL; // URL base de la API del hosting
     
-    // Si tenemos el token y el project ID, intentar guardar en Railway
-    if (railwayToken && projectId) {
+    // Si tenemos el token y el project ID, intentar guardar en variable de entorno
+    // Nota: Esto es opcional y solo funciona si tu hosting (KMV) soporta actualizar variables vía API
+    if (hostingToken && projectId && hostingApiUrl) {
       try {
-        // Comprimir datos si son muy grandes (Railway tiene límite de 64KB por variable)
+        // Comprimir datos si son muy grandes (algunos hostings tienen límite de tamaño por variable)
         let backupData = data;
         if (data.length > 50000) {
           // Si es muy grande, usar solo los campos esenciales
@@ -192,15 +195,15 @@ async function saveBackupAsync(data) {
           console.log(`[GUILD CONFIG] 💾 Compressed backup data (${data.length} -> ${backupData.length} bytes)`);
         }
         
-        // Actualizar variable de entorno usando Railway API
+        // Actualizar variable de entorno usando API del hosting
         const response = await axios.patch(
-          `https://api.railway.app/v1/variables/${RAILWAY_ENV_BACKUP_KEY}`,
+          `${hostingApiUrl}/variables/${ENV_BACKUP_KEY}`,
           {
             value: backupData
           },
           {
             headers: {
-              'Authorization': `Bearer ${railwayToken}`,
+              'Authorization': `Bearer ${hostingToken}`,
               'Content-Type': 'application/json'
             },
             params: {
@@ -212,16 +215,16 @@ async function saveBackupAsync(data) {
           // Si la variable no existe, crearla
           if (error.response?.status === 404) {
             return await axios.post(
-              'https://api.railway.app/v1/variables',
+              `${hostingApiUrl}/variables`,
               {
-                name: RAILWAY_ENV_BACKUP_KEY,
+                name: ENV_BACKUP_KEY,
                 value: backupData,
                 projectId: projectId,
                 environmentId: environmentId || 'production'
               },
               {
                 headers: {
-                  'Authorization': `Bearer ${railwayToken}`,
+                  'Authorization': `Bearer ${hostingToken}`,
                   'Content-Type': 'application/json'
                 }
               }
@@ -230,13 +233,13 @@ async function saveBackupAsync(data) {
           throw error;
         });
         
-        console.log(`[GUILD CONFIG] ✅ Backup saved to Railway environment variable (${backupData.length} bytes)`);
+        console.log(`[GUILD CONFIG] ✅ Backup saved to hosting environment variable (${backupData.length} bytes)`);
       } catch (apiError) {
         // No crítico si falla, solo loguear
-        console.warn(`[GUILD CONFIG] ⚠️ Could not save backup to Railway: ${apiError.response?.data?.message || apiError.message}`);
+        console.warn(`[GUILD CONFIG] ⚠️ Could not save backup to hosting environment variable: ${apiError.response?.data?.message || apiError.message}`);
       }
     } else {
-      console.log(`[GUILD CONFIG] 💾 Backup data prepared (${data.length} bytes) - Railway API not configured`);
+      console.log(`[GUILD CONFIG] 💾 Backup data prepared (${data.length} bytes) - Hosting API not configured (this is optional)`);
     }
   } catch (error) {
     // No crítico, solo loguear
@@ -288,10 +291,10 @@ export class GuildConfig {
       saved = saveGuildConfigs();
     }
     
-    // SIEMPRE intentar guardar backup en Railway (incluso si el archivo se guardó)
-    // Esto asegura que la configuración persista entre deploys
+    // SIEMPRE intentar guardar backup en variable de entorno (incluso si el archivo se guardó)
+    // Esto asegura que la configuración persista entre deploys (opcional, solo si está configurado)
     saveBackupAsync(data).catch(err => {
-      console.warn(`[GUILD CONFIG] ⚠️ Railway backup save failed (non-critical): ${err.message}`);
+      console.warn(`[GUILD CONFIG] ⚠️ Hosting backup save failed (non-critical, optional): ${err.message}`);
     });
     
     if (saved) {
@@ -307,7 +310,7 @@ export class GuildConfig {
       }
     } else {
       console.error(`[GUILD CONFIG] ❌ Failed to save configuration for guild: ${guildId} after multiple attempts`);
-      console.log(`[GUILD CONFIG] 💾 Configuration will be saved to Railway backup instead`);
+      console.log(`[GUILD CONFIG] 💾 Configuration will be saved to hosting backup instead (if configured)`);
     }
     
     return guildConfigs[guildId];

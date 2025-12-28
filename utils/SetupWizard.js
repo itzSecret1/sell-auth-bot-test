@@ -22,7 +22,10 @@ export class SetupWizard {
         vouchesChannelId: null,
         verificationChannelId: null,
         memberRoleId: null,
-        verificationCategoryId: null
+        verificationCategoryId: null,
+        welcomeChannelId: null,
+        websiteLink: null,
+        applicationReviewCategoryId: null
       }
     };
     this.setupSessions.set(userId, session);
@@ -188,6 +191,30 @@ export class SetupWizard {
         fieldValue: session.config.memberRoleId ? `<@&${session.config.memberRoleId}>` : 'Not configured (Optional)',
         buttonId: 'setup_member_role',
         optional: true
+      },
+      {
+        title: '👋 Step 19: Welcome Channel',
+        description: '**What is it?**\nThis channel displays a welcome message when users join the server.\n\n**What does it contain?**\n• Welcome embed with server name and logo\n• Website link button\n• Server information\n\n**Is it mandatory?** No, but recommended to welcome new members.',
+        fieldName: 'Welcome Channel',
+        fieldValue: session.config.welcomeChannelId ? `<#${session.config.welcomeChannelId}>` : 'Not configured (Optional)',
+        buttonId: 'setup_welcome_channel',
+        optional: true
+      },
+      {
+        title: '🌐 Step 20: Website Link',
+        description: '**What is it?**\nThe website URL that will appear in welcome messages, vouches, and other bot embeds.\n\n**What is it for?**\nTo provide users with a direct link to your website/shop.\n\n**Is it mandatory?** No, but recommended to direct users to your website.',
+        fieldName: 'Website Link',
+        fieldValue: session.config.websiteLink || 'Not configured (Optional)',
+        buttonId: 'setup_website_link',
+        optional: true
+      },
+      {
+        title: '📋 Step 21: Staff Applications Review Category',
+        description: '**What is it?**\nThis category is where staff application review channels are created.\n\n**What does it contain?**\n• Review channels for each applicant\n• Application summaries\n• Accept/Deny buttons\n\n**Is it mandatory?** No, but required if you want to use staff applications feature.',
+        fieldName: 'Staff Applications Review Category',
+        fieldValue: session.config.applicationReviewCategoryId ? `<#${session.config.applicationReviewCategoryId}>` : 'Not configured (Optional)',
+        buttonId: 'setup_application_review_category',
+        optional: true
       }
     ];
 
@@ -279,6 +306,24 @@ export class SetupWizard {
   }
 
   static createChannelModal(stepName, label) {
+    // Special modal for website link (URL input instead of ID)
+    if (stepName === 'website_link') {
+      return new ModalBuilder()
+        .setCustomId(`setup_modal_${stepName}`)
+        .setTitle(`Configure ${label}`)
+        .addComponents(
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId('website_url')
+              .setLabel('Website URL')
+              .setStyle(TextInputStyle.Short)
+              .setPlaceholder('https://example.com')
+              .setRequired(true)
+              .setMaxLength(200)
+          )
+        );
+    }
+    
     return new ModalBuilder()
       .setCustomId(`setup_modal_${stepName}`)
       .setTitle(`Configure ${label}`)
@@ -286,7 +331,7 @@ export class SetupWizard {
         new ActionRowBuilder().addComponents(
           new TextInputBuilder()
             .setCustomId('channel_id')
-            .setLabel('Channel ID')
+            .setLabel(stepName === 'application_review_category' ? 'Category ID' : 'Channel ID')
             .setStyle(TextInputStyle.Short)
             .setPlaceholder('123456789012345678')
             .setRequired(true)

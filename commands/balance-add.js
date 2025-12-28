@@ -93,15 +93,58 @@ export default {
         if (!customer) {
           try {
             console.log(`[BALANCE-ADD] Creando nuevo cliente con email: ${email}`);
-            customer = await api.post(`shops/${api.shopId}/customers`, {
-              email: email,
-              balance: amount,
-              credit: amount
-            });
+            
+            // Intentar crear cliente con diferentes formatos de datos
+            let createData = {
+              email: email
+            };
+            
+            // Intentar crear primero sin balance
+            try {
+              customer = await api.post(`shops/${api.shopId}/customers`, createData);
+              console.log(`[BALANCE-ADD] Cliente creado: ID ${customer.id || customer.data?.id || 'N/A'}`);
+            } catch (createError1) {
+              // Si falla, intentar con balance
+              try {
+                createData.balance = amount;
+                customer = await api.post(`shops/${api.shopId}/customers`, createData);
+                console.log(`[BALANCE-ADD] Cliente creado con balance: ID ${customer.id || customer.data?.id || 'N/A'}`);
+              } catch (createError2) {
+                // Si aún falla, intentar con credit
+                try {
+                  createData.credit = amount;
+                  delete createData.balance;
+                  customer = await api.post(`shops/${api.shopId}/customers`, createData);
+                  console.log(`[BALANCE-ADD] Cliente creado con credit: ID ${customer.id || customer.data?.id || 'N/A'}`);
+                } catch (createError3) {
+                  // Extraer mensaje de error más descriptivo
+                  const errorMsg = createError3.data?.message || createError3.data?.error || createError3.message || 'Unknown error';
+                  const errorStatus = createError3.status || createError3.data?.status;
+                  
+                  console.error(`[BALANCE-ADD] Error creando cliente:`, {
+                    status: errorStatus,
+                    message: errorMsg,
+                    data: createError3.data
+                  });
+                  
+                  throw new Error(`No se pudo crear el cliente: ${errorMsg}${errorStatus ? ` (${errorStatus})` : ''}`);
+                }
+              }
+            }
+            
+            // Asegurar que customer tiene id
+            if (!customer.id && customer.data?.id) {
+              customer.id = customer.data.id;
+            }
+            
+            if (!customer.id) {
+              throw new Error('Cliente creado pero no se recibió ID válido');
+            }
+            
             currentBalance = 0;
-            console.log(`[BALANCE-ADD] Cliente creado: ID ${customer.id}`);
           } catch (createError) {
-            throw new Error(`No se pudo crear el cliente: ${createError.message || createError.data?.message || 'Cliente no encontrado y no se pudo crear'}`);
+            const errorMsg = createError.message || createError.data?.message || createError.data?.error || 'Cliente no encontrado y no se pudo crear';
+            throw new Error(`No se pudo crear el cliente: ${errorMsg}`);
           }
         }
 

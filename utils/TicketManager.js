@@ -1133,41 +1133,27 @@ export class TicketManager {
           const user = await guild.members.fetch(ticket.userId).catch(() => null);
           const staffMember = ticket.claimedBy ? await guild.members.fetch(ticket.claimedBy).catch(() => null) : null;
 
+          // Formato como foto 4 y 5
           const staffRatingEmbed = new EmbedBuilder()
-            .setColor(0xffd700)
-            .setTitle('⭐ Staff Rating')
+            .setColor(0x5865F2)
+            .setTitle('✨ New Ticket Review')
             .addFields(
               {
-                name: '👤 Evaluated by',
-                value: user ? `${user} (${user.user.tag})` : `User ID: ${ticket.userId}`,
-                inline: true
-              },
-              {
-                name: '👨‍💼 Staff Member',
-                value: staffMember ? `${staffMember} (${staffMember.user.tag})` : 'Nobody claimed this ticket',
-                inline: true
-              },
-              {
-                name: '💼 Category',
-                value: ticket.category,
-                inline: true
-              },
-              {
-                name: '⭐ Rating',
-                value: `${ticket.staffRating}/5 ${'⭐'.repeat(ticket.staffRating)}${'☆'.repeat(5 - ticket.staffRating)}`,
+                name: '👤 User Information',
+                value: `Creator: <@${ticket.userId}> ${user?.user.username || 'Unknown'}\nCategory: ${ticket.category || 'Support'}\nMessages: ${ticket.messageCount || 1}`,
                 inline: false
               },
               {
-                name: '📅 Date',
-                value: `<t:${Math.floor(new Date().getTime() / 1000)}:F>`,
-                inline: true
-              },
-              {
-                name: '🎫 Ticket ID',
-                value: ticket.id,
-                inline: true
+                name: '⭐ User Feedback',
+                value: '⭐'.repeat(ticket.staffRating) + '☆'.repeat(5 - ticket.staffRating) + `\n${ticket.staffRatingComment || 'No comment provided'}`,
+                inline: false
               }
             )
+            .setThumbnail(user?.user.displayAvatarURL({ dynamic: true }) || guild.iconURL({ dynamic: true }))
+            .setFooter({ 
+              text: `${guild.name} • ${new Date().toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' })} ${new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}`,
+              iconURL: guild.iconURL({ dynamic: true }) || undefined
+            })
             .setTimestamp();
 
           await staffRatingSupportChannel.send({ embeds: [staffRatingEmbed] });

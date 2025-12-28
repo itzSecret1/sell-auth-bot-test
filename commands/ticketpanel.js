@@ -1,5 +1,6 @@
-import { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
+import { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, StringSelectMenuBuilder, StringSelectMenuOptionBuilder } from 'discord.js';
 import { config } from '../utils/config.js';
+import { GuildConfig } from '../utils/GuildConfig.js';
 
 export default {
   data: new SlashCommandBuilder()
@@ -10,66 +11,41 @@ export default {
     try {
       await interaction.deferReply({ ephemeral: true });
 
+      // Obtener nombre del servidor
+      const guildName = interaction.guild.name;
+      const guildConfig = GuildConfig.getConfig(interaction.guild.id);
+      
+      // Crear embed con banner y diseño como en foto 4
       const embed = new EmbedBuilder()
         .setColor(0x5865F2)
-        .setTitle('🎫 TICKET SYSTEM')
-        .setDescription('Select the category for your ticket to get started.')
-        .addFields(
-          {
-            name: '🔄 Replaces',
-            value: 'Manage product replacements',
-            inline: false
-          },
-          {
-            name: '❓ FAQ',
-            value: 'General questions',
-            inline: false
-          },
-          {
-            name: '🛒 Purchase',
-            value: 'Purchase inquiries',
-            inline: false
-          },
-          {
-            name: '🤝 Partner',
-            value: 'Partnership requests',
-            inline: false
-          },
-          {
-            name: '👑 Partner Manager',
-            value: 'Partner management',
-            inline: false
-          }
-        )
-        .setFooter({ text: 'Click a button to create your ticket' });
+        .setTitle('🎫 Nebula Market Tickets')
+        .setDescription('If you need help, click on the option corresponding to the type of ticket you want to open. Response time may vary to many factors, so please be patient.')
+        .setFooter({ text: `${guildName} • Ticket System` })
+        .setTimestamp();
 
-      const row = new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-          .setCustomId('ticket_replaces')
-          .setLabel('Replaces')
-          .setEmoji('🔄')
-          .setStyle(ButtonStyle.Primary),
-        new ButtonBuilder()
-          .setCustomId('ticket_faq')
-          .setLabel('FAQ')
-          .setEmoji('❓')
-          .setStyle(ButtonStyle.Secondary),
-        new ButtonBuilder()
-          .setCustomId('ticket_purchase')
-          .setLabel('Purchase')
-          .setEmoji('🛒')
-          .setStyle(ButtonStyle.Success),
-        new ButtonBuilder()
-          .setCustomId('ticket_partner')
-          .setLabel('Partner')
-          .setEmoji('🤝')
-          .setStyle(ButtonStyle.Secondary),
-        new ButtonBuilder()
-          .setCustomId('ticket_partner_manager')
-          .setLabel('Partner Manager')
-          .setEmoji('👑')
-          .setStyle(ButtonStyle.Danger)
-      );
+      // Crear dropdown menu con categorías como en foto 5
+      const selectMenu = new StringSelectMenuBuilder()
+        .setCustomId('ticket_category_select')
+        .setPlaceholder('Select a ticket category...')
+        .addOptions(
+          new StringSelectMenuOptionBuilder()
+            .setLabel('Product not received')
+            .setDescription('Support for products not received')
+            .setValue('product_not_received')
+            .setEmoji('🚫'),
+          new StringSelectMenuOptionBuilder()
+            .setLabel('Replace')
+            .setDescription('Request product replacement')
+            .setValue('replace')
+            .setEmoji('🔄'),
+          new StringSelectMenuOptionBuilder()
+            .setLabel('Support')
+            .setDescription('Receive support from the staff team')
+            .setValue('support')
+            .setEmoji('💬')
+        );
+
+      const row = new ActionRowBuilder().addComponents(selectMenu);
 
       await interaction.channel.send({
         embeds: [embed],

@@ -177,6 +177,10 @@ export default {
       return;
     }
 
+    // Obtener URL del website (de configuración o por defecto)
+    const guildConfig = GuildConfig.getConfig(interaction.guild.id);
+    const websiteUrl = guildConfig?.websiteLink || config.SHOP_URL || 'https://sellauth.com';
+    
     // Mostrar guía de configuración
     const guideEmbed = new EmbedBuilder()
       .setColor(0x5865F2)
@@ -197,6 +201,11 @@ export default {
           name: '⚙️ Roles Opcionales',
           value: '**Customer Role**: Rol que se asigna automáticamente a clientes\n**Trial Admin Role**: Solo acceso al comando `/sync-variants`',
           inline: false
+        },
+        {
+          name: '🌐 Website',
+          value: `**URL**: ${websiteUrl}\n\nPuedes configurar el enlace del website que aparecerá en los mensajes del bot.`,
+          inline: false
         }
       )
       .setFooter({ text: 'Haz clic en "Comenzar" para iniciar la configuración' })
@@ -207,6 +216,11 @@ export default {
         .setCustomId('setup_start_config')
         .setLabel('🚀 Comenzar Configuración')
         .setStyle(ButtonStyle.Primary),
+      new ButtonBuilder()
+        .setCustomId('setup_website_button')
+        .setLabel('🌐 Go to website')
+        .setStyle(ButtonStyle.Link)
+        .setURL(websiteUrl),
       new ButtonBuilder()
         .setCustomId('setup_cancel')
         .setLabel('❌ Cancelar')
@@ -283,6 +297,7 @@ export default {
       verificationChannelId: verificationChannel?.id || existingConfig.verificationChannelId || null,
       memberRoleId: memberRole?.id || existingConfig.memberRoleId || null,
       verificationCategoryId: existingConfig.verificationCategoryId || null,
+      websiteLink: existingConfig.websiteLink || config.SHOP_URL || 'https://sellauth.com',
       configuredBy: interaction.user.id,
       configuredByUsername: interaction.user.username
     });

@@ -47,12 +47,60 @@ export default {
         .setMinValue(1)
         .setMaxValue(5)
     )
+    .addStringOption((option) =>
+      option
+        .setName('product')
+        .setDescription('Product name (optional)')
+        .setRequired(false)
+        .setAutocomplete(true)
+        .setMaxLength(100)
+    )
     .addAttachmentOption((option) =>
       option
         .setName('proof')
         .setDescription('Image/video as proof (optional)')
         .setRequired(false)
     ),
+
+  async autocomplete(interaction) {
+    try {
+      const focusedOption = interaction.options.getFocused(true);
+      
+      if (focusedOption.name === 'product') {
+        try {
+          const { loadVariantsData } = await import('../utils/dataLoader.js');
+          const variantsData = loadVariantsData();
+          const searchTerm = (focusedOption.value || '').toLowerCase().trim();
+          
+          // Get all products and filter
+          const products = Object.values(variantsData)
+            .filter((p) => p && p.productName && p.productId)
+            .map((p) => ({
+              name: p.productName.slice(0, 100),
+              id: String(p.productId)
+            }))
+            .filter((p) => 
+              searchTerm === '' || 
+              p.name.toLowerCase().includes(searchTerm)
+            )
+            .slice(0, 25);
+
+          // Format for Discord
+          const response = products.map((p) => ({
+            name: p.name,
+            value: p.name
+          }));
+
+          await interaction.respond(response);
+        } catch (err) {
+          console.error(`[VOUCH] Product autocomplete error: ${err.message}`);
+          await interaction.respond([]);
+        }
+      }
+    } catch (error) {
+      console.error(`[VOUCH] Autocomplete error: ${error.message}`);
+    }
+  },
 
   onlyWhitelisted: false,
 
@@ -81,6 +129,7 @@ export default {
 
       const message = interaction.options.getString('message');
       const stars = interaction.options.getInteger('stars');
+      const product = interaction.options.getString('product') || null;
       const proof = interaction.options.getAttachment('proof');
 
       // Cargar vouches existentes
@@ -106,6 +155,7 @@ export default {
         id: vouchNumber,
         message: message,
         stars: stars,
+        product: product,
         proof: proof ? proof.url : null,
         vouchedBy: interaction.user.id,
         vouchedByUsername: interaction.user.username,
@@ -118,44 +168,34 @@ export default {
       // Guardar vouch
       vouchesData.vouches.push(vouch);
       saveVouches(vouchesData);
+      
+      // El backup diario se hará automáticamente (ver Bot.js para el scheduler)
 
-      // Crear embed del vouch (formato mejorado)
-      const shopUrl = config.SHOP_URL || 'https://sellauth.com';
+      // Obtener nombre del servidor
+      const guildName = interaction.guild.name;
+      
+      // Crear embed del vouch (formato EXACTO como foto 4 y 5)
+      const categoryValue = product || 'Vouch';
+      
       const vouchEmbed = new EmbedBuilder()
         .setColor(0x5865F2)
-        .setTitle('✨ New Vouch Created!')
-        .setURL(shopUrl)
+        .setTitle('✨ New Vouch Review')
         .addFields(
           {
-            name: '💬 Vouch',
-            value: message,
+            name: '👤 User Information',
+            value: `Creator: <@${interaction.user.id}> ${interaction.user.username}\nCategory: ${categoryValue}\nMessages: 1`,
             inline: false
           },
           {
-            name: '⭐ Rating',
-            value: '⭐'.repeat(stars) + '☆'.repeat(5 - stars),
+            name: '⭐ User Feedback',
+            value: '⭐'.repeat(stars) + '☆'.repeat(5 - stars) + `\n${message}`,
             inline: false
-          },
-          {
-            name: '📋 Vouch N°',
-            value: `#${vouchNumber}`,
-            inline: true
-          },
-          {
-            name: '👤 Vouched by',
-            value: `<@${interaction.user.id}>`,
-            inline: true
-          },
-          {
-            name: '🕐 Vouched at',
-            value: `<t:${Math.floor(new Date().getTime() / 1000)}:F>`,
-            inline: true
           }
         )
         .setThumbnail(interaction.user.displayAvatarURL({ dynamic: true }))
         .setFooter({ 
-          text: `Powered by itz_Secret_alt • Vouch #${vouchNumber}`,
-          iconURL: interaction.client.user.displayAvatarURL({ dynamic: true })
+          text: `${guildName} • ${new Date().toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' })} ${new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}`,
+          iconURL: interaction.guild.iconURL({ dynamic: true }) || interaction.client.user.displayAvatarURL({ dynamic: true })
         })
         .setTimestamp();
 
@@ -179,6 +219,7 @@ export default {
           'Vouch Number': vouchNumber.toString(),
           'Message': message,
           'Stars': stars.toString(),
+          'Product': product || 'N/A',
           'Proof': proof ? 'Yes' : 'No'
         }
       });

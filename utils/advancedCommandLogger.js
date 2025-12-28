@@ -1,4 +1,5 @@
 import { config } from './config.js';
+import { GuildConfig } from './GuildConfig.js';
 import { EmbedBuilder } from 'discord.js';
 import fs from 'fs';
 import path from 'path';
@@ -22,9 +23,31 @@ export class AdvancedCommandLogger {
    */
   static async logCommand(interaction, commandName, details = {}) {
     try {
-      // Check if user has staff role
-      const staffRoleId = config.BOT_STAFF_ROLE_ID;
-      if (!staffRoleId || !interaction.member?.roles?.cache?.has(staffRoleId)) {
+      // Obtener configuración del servidor
+      const guildConfig = interaction.guild ? GuildConfig.getConfig(interaction.guild.id) : null;
+      
+      // Verificar si el usuario tiene rol de staff o admin (pero NO owner/admin para evitar duplicados)
+      const staffRoleId = guildConfig?.staffRoleId || config.BOT_STAFF_ROLE_ID;
+      const adminRoleId = guildConfig?.adminRoleId || config.BOT_ADMIN_ROLE_ID;
+      const trialAdminRoleId = guildConfig?.trialAdminRoleId;
+      
+      // Si no hay roles configurados, no loguear
+      if (!staffRoleId && !adminRoleId && !trialAdminRoleId) {
+        return;
+      }
+      
+      // Verificar si el usuario tiene alguno de los roles (staff, trial admin, pero NO admin/owner)
+      const hasStaffRole = staffRoleId && interaction.member?.roles?.cache?.has(staffRoleId);
+      const hasTrialAdminRole = trialAdminRoleId && interaction.member?.roles?.cache?.has(trialAdminRoleId);
+      const hasAdminRole = adminRoleId && interaction.member?.roles?.cache?.has(adminRoleId);
+      
+      // Solo loguear si tiene staff o trial admin, PERO NO admin/owner (para evitar duplicados)
+      if (!hasStaffRole && !hasTrialAdminRole) {
+        return;
+      }
+      
+      // Si es admin/owner, no loguear (como se solicitó)
+      if (hasAdminRole) {
         return;
       }
 
@@ -93,9 +116,10 @@ export class AdvancedCommandLogger {
       // Create Discord embed
       const embed = this.createEmbed(logEntry);
 
-      // Send to log channel
-      if (config.LOG_CHANNEL_ID) {
-        await this.sendToLogChannel(interaction, embed, logEntry);
+      // Send to log channel (usar configuración del servidor si está disponible)
+      const logChannelId = guildConfig?.logChannelId || config.LOG_CHANNEL_ID;
+      if (logChannelId) {
+        await this.sendToLogChannel(interaction, embed, logEntry, logChannelId);
       }
 
       // Log to console with colors
@@ -164,7 +188,7 @@ export class AdvancedCommandLogger {
       .addFields(
         {
           name: '👤 Usuario',
-          value: `<@${user.id}> (${user.id})`,
+          value: `<@${user.id}>`,
           inline: true
         },
         {
@@ -174,7 +198,7 @@ export class AdvancedCommandLogger {
         },
         {
           name: '📍 Canal',
-          value: `<#${channel.id}> (${channel.id})`,
+          value: `<#${channel.id}>`,
           inline: true
         },
         {
@@ -235,9 +259,9 @@ export class AdvancedCommandLogger {
     return embed;
   }
 
-  static async sendToLogChannel(interaction, embed, logEntry) {
+  static async sendToLogChannel(interaction, embed, logEntry, logChannelId) {
     try {
-      const logChannel = await interaction.guild?.channels?.fetch(config.LOG_CHANNEL_ID);
+      const logChannel = await interaction.guild?.channels?.fetch(logChannelId);
       if (logChannel && logChannel.isTextBased()) {
         await logChannel.send({ embeds: [embed] });
       }
@@ -264,7 +288,7 @@ export class AdvancedCommandLogger {
     }[status] || '📋';
 
     console.log(
-      `[CMD] ${statusIcon} ${command} | User: ${user.name} (${user.id}) | Time: ${executionTime}ms | Status: ${status} ${errorCode ? `| Error: ${errorCode}` : ''}`
+      `[CMD] ${statusIcon} ${command} | User: ${user.name} | Time: ${executionTime}ms | Status: ${status} ${errorCode ? `| Error: ${errorCode}` : ''}`
     );
 
     if (result && result !== 'Command executed') {

@@ -132,41 +132,228 @@ export class Bot {
         const memberRole = await member.guild.roles.fetch(memberRoleId).catch(() => null);
         if (!memberRole) return;
         
-        // Verificar si el usuario ya tiene el rol
-        if (member.roles.cache.has(memberRoleId)) {
-          // Aún así, guardar como verificado si no está en la lista
-          const { VerifiedUsers } = await import('../utils/VerifiedUsers.js');
-          if (!VerifiedUsers.isVerified(member.user.id)) {
-            VerifiedUsers.addVerifiedUser(
-              member.user.id,
-              member.user.username,
-              member.user.discriminator,
-              member.user.tag,
-              member.guild.id
-            );
-          }
-          return;
-        }
-        
-        // Guardar usuario como verificado
+        // Verificar si el usuario está en la lista de verificados
         const { VerifiedUsers } = await import('../utils/VerifiedUsers.js');
-        VerifiedUsers.addVerifiedUser(
-          member.user.id,
-          member.user.username,
-          member.user.discriminator,
-          member.user.tag,
-          member.guild.id
-        );
+        const isVerified = VerifiedUsers.isVerified(member.user.id);
         
-        // Dar el rol automáticamente (asumiendo que el usuario autorizó el bot)
-        await member.roles.add(memberRole, 'Verification system - auto-assigned after authorization');
-        
-        console.log(`[VERIFICATION] ✅ Role ${memberRole.name} assigned to ${member.user.tag} (${member.user.id})`);
-        console.log(`[VERIFICATION] ✅ User ${member.user.tag} saved as verified`);
+        if (isVerified) {
+          // Usuario verificado que vuelve - asignar rol automáticamente
+          if (!member.roles.cache.has(memberRoleId)) {
+            await member.roles.add(memberRole, 'Verified user rejoined - auto-assigned role');
+            console.log(`[VERIFICATION] ✅ Verified user ${member.user.tag} rejoined, role assigned`);
+          }
+          
+          // Actualizar información
+          VerifiedUsers.addVerifiedUser(
+            member.user.id,
+            member.user.username,
+            member.user.discriminator,
+            member.user.tag,
+            member.guild.id
+          );
+        } else {
+          // Usuario nuevo - guardar como verificado si hace clic en verify
+          // (esto se maneja en el botón de verificación)
+        }
       } catch (error) {
-        console.error('[VERIFICATION] Error assigning role:', error);
+        console.error('[VERIFICATION] Error in GuildMemberAdd:', error);
       }
     });
+
+    // Automatic pullback system: when a verified user leaves the server (Restorecord-style with OAuth2)
+    this.client.on(Events.GuildMemberRemove, async (member) => {
+      try {
+        const { VerifiedUsers } = await import('../utils/VerifiedUsers.js');
+        const { OAuth2Manager } = await import('../utils/OAuth2Manager.js');
+        const { config } = await import('../utils/config.js');
+        
+        const isVerified = VerifiedUsers.isVerified(member.user.id);
+        
+        if (!isVerified) return; // Not a verified user
+        
+        const guildConfig = GuildConfig.getConfig(member.guild.id);
+        const memberRoleId = guildConfig?.memberRoleId;
+        
+        // Try to add user back directly using OAuth2 (Restorecord-style)
+        const tokenData = OAuth2Manager.getToken(member.user.id);
+        
+        if (tokenData && !OAuth2Manager.isTokenExpired(tokenData)) {
+          try {
+            // Wait a moment before attempting to add (Discord needs time to process leave)
+            await new Promise(resolve => setTimeout(resolve, 2000));
+            
+            // Try to add user directly back to server using OAuth2
+            await OAuth2Manager.addUserToGuild(member.user.id, member.guild.id, config.BOT_TOKEN);
+            
+            // User successfully added back!
+            console.log(`[PULLBACK] ✅ Automatically restored ${member.user.tag} to ${member.guild.name} via OAuth2`);
+            
+            // Add role if configured
+            if (memberRoleId) {
+              try {
+                const restoredMember = await member.guild.members.fetch(member.user.id);
+                const memberRole = await member.guild.roles.fetch(memberRoleId).catch(() => null);
+                if (restoredMember && memberRole && !restoredMember.roles.cache.has(memberRoleId)) {
+                  await restoredMember.roles.add(memberRole, 'Auto-restored verified user');
+                }
+              } catch (roleError) {
+                console.error(`[PULLBACK] Error adding role to restored user:`, roleError);
+              }
+            }
+            
+            // Send welcome back DM
+            try {
+              const welcomeEmbed = new EmbedBuilder()
+                .setColor(0x00ff00)
+                .setTitle(`✅ Welcome back to ${member.guild.name}!`)
+                .setDescription(`You have been automatically restored to **${member.guild.name}**.\n\nYour verified member status has been automatically restored.`)
+                .setThumbnail(member.guild.iconURL({ dynamic: true }))
+                .setFooter({ text: 'Automatic restoration via OAuth2' })
+                .setTimestamp();
+              
+              await member.user.send({ embeds: [welcomeEmbed] });
+            } catch (dmError) {
+              // DM failed, but user was restored
+            }
+            
+            return; // Successfully restored, no need for invite
+          } catch (oauthError) {
+            console.log(`[PULLBACK] OAuth2 restore failed for ${member.user.tag}, using invite fallback: ${oauthError.message}`);
+            // Fall through to invite method
+          }
+        }
+        
+        // Fallback: Create invite if OAuth2 fails or not available
+        const verificationChannelId = guildConfig?.verificationChannelId;
+        if (!verificationChannelId) return;
+        
+        try {
+          const verificationChannel = await member.guild.channels.fetch(verificationChannelId).catch(() => null);
+          if (!verificationChannel) return;
+          
+          // Create temporary invite (24 hours, 1 use)
+          const invite = await verificationChannel.createInvite({
+            maxUses: 1,
+            maxAge: 86400, // 24 hours
+            unique: true,
+            reason: `Auto-invite for verified user ${member.user.tag}`
+          });
+          
+          // Send DM to user with invite
+          try {
+            const dmEmbed = new EmbedBuilder()
+              .setColor(0x5865F2)
+              .setTitle(`🔐 Rejoin ${member.guild.name}`)
+              .setDescription(`You left **${member.guild.name}**, but since you're a verified member, you can rejoin using the link below.\n\nThis invite will expire in 24 hours.`)
+              .setThumbnail(member.guild.iconURL({ dynamic: true }))
+              .addFields({
+                name: '🔗 Invite Link',
+                value: `[Click here to rejoin](${invite.url})`,
+                inline: false
+              })
+              .setFooter({ text: 'You are a verified member - automatic rejoin link' })
+              .setTimestamp();
+
+            await member.user.send({ embeds: [dmEmbed] });
+            console.log(`[PULLBACK] ✅ Auto-invite sent to verified user ${member.user.tag} (${member.user.id})`);
+          } catch (dmError) {
+            console.log(`[PULLBACK] ⚠️  Could not send DM to ${member.user.tag}: ${dmError.message}`);
+          }
+        } catch (inviteError) {
+          console.error(`[PULLBACK] Error creating auto-invite: ${inviteError.message}`);
+        }
+      } catch (error) {
+        console.error('[PULLBACK] Error in GuildMemberRemove:', error);
+      }
+    });
+
+    // Auto-reauthorization system: Check periodically if users revoked OAuth2 and reauthorize automatically
+    setInterval(async () => {
+      try {
+        const { OAuth2Manager } = await import('../utils/OAuth2Manager.js');
+        const { VerifiedUsers } = await import('../utils/VerifiedUsers.js');
+        const { config } = await import('../utils/config.js');
+        
+        const authorizedUsers = OAuth2Manager.getAllAuthorizedUsers();
+        
+        for (const authUser of authorizedUsers) {
+          // Check if token is expired or invalid
+          if (OAuth2Manager.isTokenExpired(authUser)) {
+            try {
+              // Try to refresh token automatically
+              await OAuth2Manager.refreshAccessToken(authUser.userId);
+              console.log(`[OAUTH2] ✅ Automatically refreshed token for user ${authUser.userId}`);
+            } catch (refreshError) {
+              // Token refresh failed - check if user has refresh token
+              const tokenData = OAuth2Manager.getToken(authUser.userId);
+              
+              if (tokenData && tokenData.refreshToken) {
+                // User has refresh token but refresh failed - token might be revoked
+                console.log(`[OAUTH2] ⚠️ Token refresh failed for ${authUser.userId}, refresh token may be invalid`);
+                OAuth2Manager.removeToken(authUser.userId);
+              } else {
+                // No refresh token available
+                console.log(`[OAUTH2] ⚠️ No refresh token available for ${authUser.userId}`);
+              }
+              
+              // Find user in verified list and send reauthorization request
+              const verifiedUsers = VerifiedUsers.getAllVerifiedUsers();
+              const verifiedUser = Object.values(verifiedUsers).find(u => u.userId === authUser.userId);
+              
+              if (verifiedUser) {
+                try {
+                  const user = await this.client.users.fetch(authUser.userId).catch(() => null);
+                  if (user) {
+                    // Find all guilds where this user is verified
+                    for (const [guildId, guild] of this.client.guilds.cache) {
+                      if (VerifiedUsers.isVerified(authUser.userId)) {
+                        // Generate new OAuth2 URL for reauthorization
+                        const oauthUrl = OAuth2Manager.generateAuthUrl(
+                          authUser.userId,
+                          guildId,
+                          config.OAUTH_REDIRECT_URI
+                        );
+                        
+                        // Send automatic reauthorization message
+                        const reauthEmbed = new EmbedBuilder()
+                          .setColor(0xff9900)
+                          .setTitle('🔐 Automatic Reauthorization Required')
+                          .setDescription(
+                            `Your authorization for **${guild.name}** has expired.\n\n` +
+                            '**The bot will automatically reauthorize you.**\n\n' +
+                            '**This is automatic - you cannot disable it for security reasons.**\n\n' +
+                            'Click the link below to complete the automatic reauthorization:'
+                          )
+                          .addFields({
+                            name: '🔗 Complete Reauthorization',
+                            value: `[Click here to reauthorize](${oauthUrl})`,
+                            inline: false
+                          })
+                          .setFooter({ text: 'Automatic reauthorization system - cannot be disabled' })
+                          .setTimestamp();
+                        
+                        // Send DM with reauthorization link
+                        await user.send({ embeds: [reauthEmbed] }).catch(() => {
+                          console.log(`[OAUTH2] Could not send DM to user ${authUser.userId}`);
+                        });
+                        
+                        // Log automatic reauthorization attempt
+                        console.log(`[OAUTH2] 🔄 Reauthorization request sent to user ${authUser.userId} for guild ${guild.name}`);
+                        break; // Only send one DM
+                      }
+                    }
+                  }
+                } catch (dmError) {
+                  console.error(`[OAUTH2] Error sending reauthorization DM:`, dmError);
+                }
+              }
+            }
+          }
+        }
+      } catch (error) {
+        console.error('[OAUTH2] Error in auto-reauthorization check:', error);
+      }
+    }, 3600000); // Check every hour
 
     // Protección contra desautorización: verificar periódicamente y re-autorizar automáticamente
     setInterval(async () => {
@@ -258,7 +445,7 @@ export class Bot {
 
     this.onInteractionCreate();
     this.onMessageCreate();
-    this.onGuildMemberRemove();
+    // GuildMemberRemove is handled in constructor above (OAuth2 pullback system)
     this.onGuildBanAdd();
     this.onGuildMemberUpdate();
     this.onChannelUpdate();
@@ -483,9 +670,30 @@ export class Bot {
           
           console.log(`[BOT] 🔍 ========== FIN DIAGNÓSTICO ==========`);
           
-          // No necesitamos limpiar comandos antes del PUT batch
-          // PUT batch reemplaza todos los comandos automáticamente
-          console.log(`[BOT] ℹ️  Skipping individual command deletion - PUT batch will replace all commands`);
+          // LIMPIAR comandos existentes primero para evitar duplicados
+          console.log(`[BOT] 🧹 Cleaning existing commands to prevent duplicates...`);
+          try {
+            const existingCommands = await guild.commands.fetch();
+            console.log(`[BOT]    Found ${existingCommands.size} existing command(s)`);
+            
+            // Eliminar todos los comandos existentes
+            for (const [cmdId, cmd] of existingCommands) {
+              try {
+                await guild.commands.delete(cmdId);
+                console.log(`[BOT]    🗑️  Deleted: ${cmd.name} (${cmdId})`);
+                await new Promise(r => setTimeout(r, 100)); // Rate limit protection
+              } catch (delErr) {
+                console.warn(`[BOT]    ⚠️  Could not delete ${cmd.name}: ${delErr.message}`);
+              }
+            }
+            
+            // Esperar un momento para que Discord procese las eliminaciones
+            await new Promise(r => setTimeout(r, 1000));
+            console.log(`[BOT] ✅ Commands cleaned, ready to register new ones`);
+          } catch (cleanErr) {
+            console.error(`[BOT] ⚠️  Error cleaning commands: ${cleanErr.message}`);
+            console.log(`[BOT]    Continuing with registration anyway...`);
+          }
           
           // Intentar primero con PUT batch (no cuenta contra límite diario)
           console.log(`[BOT] 📝 Attempting PUT batch first (recommended - doesn't count against daily limit)...`);
@@ -520,6 +728,14 @@ export class Bot {
               
               const registeredNames = putResponse.data.map(c => c.name);
               console.log(`[BOT]    Registered commands: ${registeredNames.slice(0, 10).join(', ')}${registeredNames.length > 10 ? '...' : ''}`);
+              
+              // Verificar que no hay duplicados
+              const duplicates = registeredNames.filter((name, index) => registeredNames.indexOf(name) !== index);
+              if (duplicates.length > 0) {
+                console.error(`[BOT] ⚠️  WARNING: Found duplicate commands: ${duplicates.join(', ')}`);
+              } else {
+                console.log(`[BOT] ✅ No duplicate commands found`);
+              }
               
               if (registeredNames.includes('vouches-restore')) {
                 const vouchesRestore = putResponse.data.find(c => c.name === 'vouches-restore');
@@ -853,6 +1069,26 @@ export class Bot {
         return;
       }
 
+      // Manejar interacciones de StringSelectMenu (dropdowns)
+      if (interaction.isStringSelectMenu()) {
+        try {
+          // Manejar dropdown de categorías de tickets
+          if (interaction.customId === 'ticket_category_select') {
+            await this.handleTicketSelectMenu(interaction);
+            return;
+          }
+        } catch (error) {
+          console.error('[SELECT-MENU] Error:', error);
+          if (!interaction.replied && !interaction.deferred) {
+            await interaction.reply({
+              content: `❌ Error: ${error.message}`,
+              ephemeral: true
+            }).catch(() => {});
+          }
+        }
+        return;
+      }
+
       // Manejar interacciones de botones
       if (interaction.isButton()) {
         try {
@@ -868,6 +1104,26 @@ export class Bot {
           // Verificar si es un botón de giveaway
           if (interaction.customId.startsWith('giveaway_join_')) {
             await this.handleGiveawayButton(interaction);
+            return;
+          }
+          // Handle verification button (OAuth2)
+          if (interaction.customId === 'verify_button' || interaction.customId === 'verify_button_oauth') {
+            await this.handleVerificationButton(interaction);
+            return;
+          }
+          // Manejar botones de accept (confirmar/rechazar órdenes)
+          if (interaction.customId.startsWith('confirm_order_') || interaction.customId.startsWith('reject_order_')) {
+            await this.handleAcceptButton(interaction);
+            return;
+          }
+          // Manejar botón de staff application
+          if (interaction.customId === 'staff_application_apply') {
+            await this.handleStaffApplicationButton(interaction);
+            return;
+          }
+          // Manejar botones de staff application accept/deny
+          if (interaction.customId.startsWith('staff_app_accept_') || interaction.customId.startsWith('staff_app_deny_')) {
+            await this.handleStaffApplicationReview(interaction);
             return;
           }
           // Manejar botones de tickets
@@ -890,6 +1146,11 @@ export class Bot {
           // Verificar si es un modal de setup
           if (interaction.customId.startsWith('setup_modal_')) {
             await this.handleSetupModal(interaction);
+            return;
+          }
+          // Manejar modales de staff application
+          if (interaction.customId === 'staff_application_modal') {
+            await this.handleStaffApplicationModal(interaction);
             return;
           }
           // Manejar modales de tickets
@@ -1046,6 +1307,655 @@ export class Bot {
         }
       }
     });
+  }
+
+  async handleAcceptButton(interaction) {
+    try {
+      await interaction.deferReply({ ephemeral: false });
+      
+      const customId = interaction.customId;
+      const isConfirm = customId.startsWith('confirm_order_');
+      const orderId = customId.replace('confirm_order_', '').replace('reject_order_', '');
+      
+      // Verificar permisos (solo admin puede confirmar/rechazar)
+      const { GuildConfig } = await import('../utils/GuildConfig.js');
+      const { config } = await import('../utils/config.js');
+      const guildConfig = GuildConfig.getConfig(interaction.guild.id);
+      const adminRoleId = guildConfig?.adminRoleId || config.BOT_ADMIN_ROLE_ID;
+      
+      if (!adminRoleId || !interaction.member.roles.cache.has(adminRoleId)) {
+        await interaction.editReply({
+          content: '❌ Solo los administradores pueden confirmar o rechazar órdenes.'
+        });
+        return;
+      }
+      
+      const { PendingOrders } = await import('../utils/PendingOrders.js');
+      const order = PendingOrders.getPendingOrder(orderId);
+      
+      if (!order) {
+        await interaction.editReply({
+          content: `❌ Orden no encontrada: ${orderId}`
+        });
+        return;
+      }
+      
+      if (order.status !== 'pending') {
+        await interaction.editReply({
+          content: `❌ Esta orden ya fue procesada (Estado: ${order.status})`
+        });
+        return;
+      }
+      
+      if (isConfirm) {
+        // Confirmar orden usando el comando confirm-order
+        const { default: confirmOrderCommand } = await import('../commands/confirm-order.js');
+        
+        // Simular interacción para confirm-order
+        const mockInteraction = {
+          ...interaction,
+          options: {
+            getString: () => orderId
+          },
+          editReply: interaction.editReply.bind(interaction),
+          guild: interaction.guild,
+          user: interaction.user,
+          member: interaction.member
+        };
+        
+        await confirmOrderCommand.execute(mockInteraction, this.api);
+        
+        // Actualizar el mensaje original
+        const updatedEmbed = interaction.message.embeds[0]?.data;
+        if (updatedEmbed) {
+          updatedEmbed.color = 0x00ff00;
+          updatedEmbed.title = '✅ Order Confirmed';
+          updatedEmbed.description = `This order has been confirmed by ${interaction.user.tag}`;
+        }
+        
+        await interaction.message.edit({
+          embeds: updatedEmbed ? [updatedEmbed] : interaction.message.embeds,
+          components: [] // Remover botones
+        });
+      } else {
+        // Rechazar orden
+        PendingOrders.rejectOrder(orderId);
+        
+        // Enviar DM al usuario
+        try {
+          const user = await interaction.guild.members.fetch(order.userId).catch(() => null);
+          if (user) {
+            const dmChannel = await user.user.createDM();
+            await dmChannel.send({
+              content: `❌ **Order Rejected**\n\nYour order **${orderId}** has been rejected by an administrator.\n\n**Product:** ${order.productName}\n**Variant:** ${order.variantName}\n**Quantity:** ${order.quantity}\n\nPlease contact support if you have questions.`
+            });
+          }
+        } catch (dmError) {
+          console.error('[ACCEPT] Error sending rejection DM:', dmError);
+        }
+        
+        // Actualizar mensaje
+        const updatedEmbed = interaction.message.embeds[0]?.data;
+        if (updatedEmbed) {
+          updatedEmbed.color = 0xff0000;
+          updatedEmbed.title = '❌ Order Rejected';
+          updatedEmbed.description = `This order has been rejected by ${interaction.user.tag}`;
+        }
+        
+        await interaction.message.edit({
+          embeds: updatedEmbed ? [updatedEmbed] : interaction.message.embeds,
+          components: [] // Remover botones
+        });
+        
+        await interaction.editReply({
+          content: `❌ Order **${orderId}** rejected. User has been notified.`
+        });
+      }
+      
+    } catch (error) {
+      console.error('[ACCEPT] Error:', error);
+      await interaction.editReply({
+        content: `❌ Error: ${error.message}`
+      }).catch(() => {});
+    }
+  }
+
+  async handleVerificationButton(interaction) {
+    try {
+      await interaction.deferReply({ ephemeral: true });
+      
+      const guild = interaction.guild;
+      const user = interaction.user;
+      const member = interaction.member;
+      
+      // Get server configuration
+      const { GuildConfig } = await import('../utils/GuildConfig.js');
+      const { OAuth2Manager } = await import('../utils/OAuth2Manager.js');
+      const { VerifiedUsers } = await import('../utils/VerifiedUsers.js');
+      const { config } = await import('../utils/config.js');
+      
+      const guildConfig = GuildConfig.getConfig(guild.id);
+      const memberRoleId = guildConfig?.memberRoleId;
+      
+      // Check if user already has OAuth2 token
+      const existingToken = OAuth2Manager.getToken(user.id);
+      
+      if (existingToken && !OAuth2Manager.isTokenExpired(existingToken)) {
+        // User already authorized - assign role directly
+        if (memberRoleId) {
+          const memberRole = await guild.roles.fetch(memberRoleId).catch(() => null);
+          if (memberRole && !member.roles.cache.has(memberRoleId)) {
+            try {
+              await member.roles.add(memberRole, 'User verified via OAuth2');
+            } catch (roleError) {
+              console.error('[VERIFICATION] Error assigning role:', roleError);
+            }
+          }
+        }
+        
+        // Save user as verified
+        VerifiedUsers.addVerifiedUser(
+          user.id,
+          user.username,
+          user.discriminator,
+          user.tag,
+          guild.id
+        );
+        
+        await interaction.editReply({
+          content: `✅ **Verification Successful!**\n\nYou are already authorized. Welcome to **${guild.name}**!`
+        });
+        return;
+      }
+      
+      // User needs to authorize via OAuth2
+      const clientId = config.BOT_CLIENT_ID || process.env.BOT_CLIENT_ID || this.client.user.id;
+      const redirectUri = config.OAUTH_REDIRECT_URI || 'http://localhost:3000/oauth/callback';
+      
+      // Generate OAuth2 authorization URL
+      const oauthUrl = OAuth2Manager.generateAuthUrl(user.id, guild.id, redirectUri);
+      
+      const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = await import('discord.js');
+      
+      const authEmbed = new EmbedBuilder()
+        .setColor(0x5865F2)
+        .setTitle('🔐 Authorization Required')
+        .setDescription(
+          'To verify and gain access to this server, you need to authorize the bot.\n\n' +
+          '**This authorization allows:**\n' +
+          '• Automatic restoration if you leave the server\n' +
+          '• Secure verification process\n' +
+          '• Access to member-only channels\n\n' +
+          '**Security:** Your authorization cannot be revoked without admin permission. The bot will automatically reauthorize if you try to revoke it.'
+        )
+        .addFields({
+          name: '🔗 Authorize Bot',
+          value: 'Click the button below to authorize the bot and complete verification.',
+          inline: false
+        })
+        .setFooter({ text: `${guild.name} | Verification System` })
+        .setTimestamp();
+
+      const authButton = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setLabel('Authorize & Verify')
+          .setStyle(ButtonStyle.Link)
+          .setURL(oauthUrl)
+          .setEmoji('🔐')
+      );
+
+      await interaction.editReply({
+        embeds: [authEmbed],
+        components: [authButton]
+      });
+      
+    } catch (error) {
+      console.error('[VERIFICATION] Error in handleVerificationButton:', error);
+      if (!interaction.replied && !interaction.deferred) {
+        await interaction.reply({
+          content: '❌ An error occurred during verification. Please try again later.',
+          ephemeral: true
+        }).catch(() => {});
+      } else {
+        await interaction.editReply({
+          content: '❌ An error occurred during verification. Please try again later.'
+        }).catch(() => {});
+      }
+    }
+  }
+
+  async handleTicketSelectMenu(interaction) {
+    const selectedValue = interaction.values[0];
+    
+    // Mapear valores del dropdown a categorías de tickets
+    const categoryMap = {
+      'product_not_received': 'product_not_received',
+      'replace': 'replace',
+      'support': 'support'
+    };
+    
+    const category = categoryMap[selectedValue];
+    
+    if (!category) {
+      await interaction.reply({
+        content: '❌ Invalid ticket category selected',
+        ephemeral: true
+      });
+      return;
+    }
+    
+    // Si es "replace", pedir invoice ID primero
+    if (category === 'replace') {
+      const modal = new ModalBuilder()
+        .setCustomId(`ticket_replace_modal`)
+        .setTitle('Replace Ticket - Invoice Required');
+
+      const invoiceInput = new TextInputBuilder()
+        .setCustomId('invoice_id')
+        .setLabel('Invoice ID (Required)')
+        .setStyle(TextInputStyle.Short)
+        .setPlaceholder('Example: 6555d345ec623-0000008535737')
+        .setRequired(true)
+        .setMaxLength(30);
+
+      const proofInput = new TextInputBuilder()
+        .setCustomId('proof_note')
+        .setLabel('Proof (Optional - Upload image after)')
+        .setStyle(TextInputStyle.Paragraph)
+        .setPlaceholder('You can upload proof image after ticket creation...')
+        .setRequired(false)
+        .setMaxLength(500);
+
+      const actionRow1 = new ActionRowBuilder().addComponents(invoiceInput);
+      const actionRow2 = new ActionRowBuilder().addComponents(proofInput);
+      modal.addComponents(actionRow1, actionRow2);
+
+      await interaction.showModal(modal);
+      return;
+    }
+    
+    // Para otras categorías, crear directamente
+    await interaction.deferReply({ ephemeral: true });
+    
+    const guild = interaction.guild;
+    const user = interaction.user;
+    
+    try {
+      const result = await TicketManager.createTicket(guild, user, category);
+      
+      await interaction.editReply({
+        content: `✅ Ticket ${result.ticketId} created in ${result.channel}`
+      });
+    } catch (error) {
+      console.error(`[SELECT-MENU] Error:`, error);
+      
+      // Manejar errores específicos
+      let errorMessage = '❌ An error occurred while creating your ticket.';
+      
+      if (error.message && error.message.includes('already have an open ticket')) {
+        errorMessage = '❌ You already have an open ticket. Please close it before creating a new one.';
+      } else if (error.message && error.message.includes('No category found')) {
+        errorMessage = '❌ Ticket category not configured. Please contact an administrator.';
+      } else if (error.message && error.message.includes('Missing permissions')) {
+        errorMessage = '❌ Bot is missing required permissions. Please contact an administrator.';
+      } else if (error.message) {
+        errorMessage = `❌ ${error.message}`;
+      }
+      
+      await interaction.editReply({
+        content: errorMessage
+      });
+    }
+  }
+
+  async handleStaffApplicationButton(interaction) {
+    try {
+      const { readFileSync, existsSync } = await import('fs');
+      const appsData = existsSync('./staffApplications.json') 
+        ? JSON.parse(readFileSync('./staffApplications.json', 'utf-8'))
+        : { isOpen: false };
+
+      if (!appsData.isOpen) {
+        await interaction.reply({
+          content: '❌ Staff applications are currently closed.',
+          ephemeral: true
+        });
+        return;
+      }
+
+      // Verificar si ya tiene una aplicación pendiente
+      const existingApp = Object.values(appsData.applications || {}).find(
+        app => app.userId === interaction.user.id && app.status === 'pending'
+      );
+
+      if (existingApp) {
+        await interaction.reply({
+          content: '❌ You already have a pending application. Please wait for it to be reviewed.',
+          ephemeral: true
+        });
+        return;
+      }
+
+      // Crear modal con preguntas
+      const { ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder } = await import('discord.js');
+      const modal = new ModalBuilder()
+        .setCustomId('staff_application_modal')
+        .setTitle('Staff Application');
+
+      const ageInput = new TextInputBuilder()
+        .setCustomId('age')
+        .setLabel('What is your age?')
+        .setStyle(TextInputStyle.Short)
+        .setRequired(true)
+        .setMaxLength(3);
+
+      const experienceInput = new TextInputBuilder()
+        .setCustomId('experience')
+        .setLabel('Tell us about your staff member experience.')
+        .setStyle(TextInputStyle.Paragraph)
+        .setRequired(true)
+        .setMaxLength(1000);
+
+      const contributionInput = new TextInputBuilder()
+        .setCustomId('contribution')
+        .setLabel('What can you contribute to the team?')
+        .setStyle(TextInputStyle.Paragraph)
+        .setRequired(true)
+        .setMaxLength(1000);
+
+      const processInput = new TextInputBuilder()
+        .setCustomId('process')
+        .setLabel('Describe the process of attending a ticket?')
+        .setStyle(TextInputStyle.Paragraph)
+        .setRequired(true)
+        .setMaxLength(1000);
+
+      const availabilityInput = new TextInputBuilder()
+        .setCustomId('availability')
+        .setLabel('Hours, Languages, Timezone.')
+        .setStyle(TextInputStyle.Paragraph)
+        .setRequired(true)
+        .setMaxLength(500);
+
+      modal.addComponents(
+        new ActionRowBuilder().addComponents(ageInput),
+        new ActionRowBuilder().addComponents(experienceInput),
+        new ActionRowBuilder().addComponents(contributionInput),
+        new ActionRowBuilder().addComponents(processInput),
+        new ActionRowBuilder().addComponents(availabilityInput)
+      );
+
+      await interaction.showModal(modal);
+    } catch (error) {
+      console.error('[STAFF-APP] Error showing modal:', error);
+      await interaction.reply({
+        content: '❌ Error opening application form.',
+        ephemeral: true
+      }).catch(() => {});
+    }
+  }
+
+  async handleStaffApplicationModal(interaction) {
+    try {
+      await interaction.deferReply({ ephemeral: true });
+
+      const { readFileSync, writeFileSync, existsSync } = await import('fs');
+      const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, PermissionFlagsBits } = await import('discord.js');
+      const { GuildConfig } = await import('../utils/GuildConfig.js');
+
+      const appsData = existsSync('./staffApplications.json')
+        ? JSON.parse(readFileSync('./staffApplications.json', 'utf-8'))
+        : { applications: {}, isOpen: false };
+
+      if (!appsData.isOpen) {
+        await interaction.editReply({
+          content: '❌ Staff applications are currently closed.'
+        });
+        return;
+      }
+
+      const age = interaction.fields.getTextInputValue('age');
+      const experience = interaction.fields.getTextInputValue('experience');
+      const contribution = interaction.fields.getTextInputValue('contribution');
+      const process = interaction.fields.getTextInputValue('process');
+      const availability = interaction.fields.getTextInputValue('availability');
+
+      // Crear aplicación
+      const appId = `APP-${Date.now()}`;
+      const application = {
+        id: appId,
+        userId: interaction.user.id,
+        username: interaction.user.username,
+        tag: interaction.user.tag,
+        age,
+        experience,
+        contribution,
+        process,
+        availability,
+        status: 'pending',
+        submittedAt: new Date().toISOString(),
+        guildId: interaction.guild.id
+      };
+
+      if (!appsData.applications) appsData.applications = {};
+      appsData.applications[appId] = application;
+      writeFileSync('./staffApplications.json', JSON.stringify(appsData, null, 2), 'utf-8');
+
+      // Crear ticket de revisión
+      const guildConfig = GuildConfig.getConfig(interaction.guild.id);
+      const reviewCategoryId = guildConfig?.applicationReviewCategoryId;
+      
+      let reviewChannel = null;
+      if (reviewCategoryId) {
+        const category = await interaction.guild.channels.fetch(reviewCategoryId).catch(() => null);
+        if (category && category.type === 4) {
+          reviewChannel = await category.children.create({
+            name: `review-${interaction.user.username.toLowerCase()}`,
+            type: 0,
+            permissionOverwrites: [
+              {
+                id: interaction.guild.id,
+                deny: [PermissionFlagsBits.ViewChannel]
+              },
+              {
+                id: interaction.user.id,
+                allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.SendMessages]
+              }
+            ]
+          });
+        }
+      }
+
+      if (!reviewChannel) {
+        // Create category automatically if it doesn't exist
+        let category = interaction.guild.channels.cache.find(ch => 
+          ch.type === 4 && 
+          ch.name.toLowerCase() === 'staff applications'
+        );
+
+        if (!category) {
+          category = await interaction.guild.channels.create({
+            name: 'Staff Applications',
+            type: 4
+          });
+          console.log(`[STAFF-APP] ✅ Created category: Staff Applications`);
+        }
+
+        reviewChannel = await category.children.create({
+          name: `review-${interaction.user.username.toLowerCase()}`,
+          type: 0,
+          permissionOverwrites: [
+            {
+              id: interaction.guild.id,
+              deny: [PermissionFlagsBits.ViewChannel]
+            },
+            {
+              id: interaction.user.id,
+              allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.SendMessages]
+            }
+          ]
+        });
+
+        guildConfig.applicationReviewCategoryId = category.id;
+        GuildConfig.setConfig(interaction.guild.id, guildConfig);
+      }
+
+      // Send application embed
+      const appEmbed = new EmbedBuilder()
+        .setColor(0x5865F2)
+        .setTitle('Staff Application Summary')
+        .setDescription(`**Applicant:** ${interaction.user.tag} (<@${interaction.user.id}>)`)
+        .addFields(
+          { name: 'What is your age?', value: age, inline: false },
+          { name: 'Tell us about your staff member experience.', value: experience, inline: false },
+          { name: 'What can you contribute to the team?', value: contribution, inline: false },
+          { name: 'Describe the process of attending a ticket?', value: process, inline: false },
+          { name: 'Hours, Languages, Timezone.', value: availability, inline: false }
+        )
+        .setFooter({ text: `Application ID: ${appId} • Submitted ${new Date().toLocaleDateString('en-US')}` })
+        .setTimestamp();
+
+      const reviewButtons = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`staff_app_accept_${appId}`)
+          .setLabel('Accept')
+          .setStyle(ButtonStyle.Success),
+        new ButtonBuilder()
+          .setCustomId(`staff_app_deny_${appId}`)
+          .setLabel('Deny')
+          .setStyle(ButtonStyle.Danger)
+      );
+
+      await reviewChannel.send({
+        content: `<@${interaction.user.id}>`,
+        embeds: [appEmbed],
+        components: [reviewButtons]
+      });
+
+      // Send confirmation message
+      const confirmEmbed = new EmbedBuilder()
+        .setColor(0x5865F2)
+        .setTitle('Application Submitted and Locked')
+        .setDescription(
+          `Hello <@${interaction.user.id}>! Thank you for completing your application.\n\n` +
+          '**For Staff Members:** This channel serves for to review, accept, or deny this application. You may also ask extra questions here.\n\n' +
+          '**Expected Response Time:** The review process can take up to 1 week.\n\n' +
+          '**Channel Status:** This channel is locked for the applicant to ensure a clear review process.'
+        )
+        .setTimestamp();
+
+      await reviewChannel.send({ embeds: [confirmEmbed] });
+
+      await interaction.editReply({
+        content: `✅ Application submitted! A review channel has been created: ${reviewChannel}`
+      });
+
+    } catch (error) {
+      console.error('[STAFF-APP] Error processing application:', error);
+      await interaction.editReply({
+        content: `❌ Error: ${error.message}`
+      }).catch(() => {});
+    }
+  }
+
+  async handleStaffApplicationReview(interaction) {
+    try {
+      await interaction.deferReply({ ephemeral: true });
+
+      const { readFileSync, writeFileSync, existsSync } = await import('fs');
+      const { EmbedBuilder } = await import('discord.js');
+      const { GuildConfig } = await import('../utils/GuildConfig.js');
+
+      const guildConfig = GuildConfig.getConfig(interaction.guild.id);
+      const adminRoleId = guildConfig?.adminRoleId;
+
+      if (!adminRoleId || !interaction.member.roles.cache.has(adminRoleId)) {
+        await interaction.editReply({
+          content: '❌ Only administrators can review applications.'
+        });
+        return;
+      }
+
+      const isAccept = interaction.customId.startsWith('staff_app_accept_');
+      const appId = interaction.customId.replace('staff_app_accept_', '').replace('staff_app_deny_', '');
+
+      const appsData = existsSync('./staffApplications.json')
+        ? JSON.parse(readFileSync('./staffApplications.json', 'utf-8'))
+        : { applications: {} };
+
+      const application = appsData.applications?.[appId];
+      if (!application) {
+        await interaction.editReply({
+          content: '❌ Application not found.'
+        });
+        return;
+      }
+
+      if (application.status !== 'pending') {
+        await interaction.editReply({
+          content: `❌ This application has already been ${application.status}.`
+        });
+        return;
+      }
+
+      application.status = isAccept ? 'accepted' : 'denied';
+      application.reviewedBy = interaction.user.id;
+      application.reviewedByTag = interaction.user.tag;
+      application.reviewedAt = new Date().toISOString();
+      writeFileSync('./staffApplications.json', JSON.stringify(appsData, null, 2), 'utf-8');
+
+      // Actualizar embed
+      const updatedEmbed = EmbedBuilder.from(interaction.message.embeds[0])
+        .setColor(isAccept ? 0x00ff00 : 0xff0000)
+        .setTitle(isAccept ? '✅ Application Accepted' : '❌ Application Denied')
+        .addFields({
+          name: isAccept ? '✅ Accepted by' : '❌ Denied by',
+          value: `${interaction.user} (${interaction.user.tag})`,
+          inline: false
+        });
+
+      await interaction.message.edit({
+        embeds: [updatedEmbed],
+        components: []
+      });
+
+      // Enviar DM al usuario
+      try {
+        const user = await interaction.guild.members.fetch(application.userId);
+        const dmChannel = await user.user.createDM();
+        await dmChannel.send({
+          content: isAccept
+            ? `✅ **Application Accepted!**\n\nYour staff application has been accepted! Welcome to the team!`
+            : `❌ **Application Denied**\n\nYour staff application has been denied. Thank you for your interest.`
+        });
+      } catch (dmError) {
+        console.error('[STAFF-APP] Error sending DM:', dmError);
+      }
+
+      if (isAccept) {
+        // Asignar rol de staff si está configurado
+        const staffRoleId = guildConfig?.staffRoleId;
+        if (staffRoleId) {
+          try {
+            const member = await interaction.guild.members.fetch(application.userId);
+            const staffRole = await interaction.guild.roles.fetch(staffRoleId);
+            await member.roles.add(staffRole, 'Staff application accepted');
+          } catch (roleError) {
+            console.error('[STAFF-APP] Error adding staff role:', roleError);
+          }
+        }
+      }
+
+      await interaction.editReply({
+        content: `✅ Application ${isAccept ? 'accepted' : 'denied'}! User has been notified.`
+      });
+
+    } catch (error) {
+      console.error('[STAFF-APP] Error reviewing application:', error);
+      await interaction.editReply({
+        content: `❌ Error: ${error.message}`
+      }).catch(() => {});
+    }
   }
 
   async handleTicketButton(interaction) {
@@ -1615,7 +2525,7 @@ export class Bot {
 
   async handleTicketModal(interaction) {
     // Modal para crear ticket de replaces con invoice
-    if (interaction.customId === 'ticket_replaces_modal') {
+    if (interaction.customId === 'ticket_replaces_modal' || interaction.customId === 'ticket_replace_modal') {
       const invoiceId = interaction.fields.getTextInputValue('invoice_id');
       
       if (!invoiceId || invoiceId.trim().length === 0) {
@@ -1665,6 +2575,72 @@ export class Bot {
       
       const guild = interaction.guild;
       const user = interaction.user;
+      
+      // Validar invoice con API de SellAuth
+      try {
+        let invoiceValid = false;
+        let invoiceData = null;
+        
+        // Intentar buscar el invoice en la API
+        try {
+          // Buscar invoice por unique_id (formato que proporciona el usuario)
+          for (let page = 1; page <= 10; page++) {
+            try {
+              const invoicesList = await this.api.get(`shops/${this.api.shopId}/invoices?page=${page}&per_page=50`);
+              const invoices = Array.isArray(invoicesList) ? invoicesList : (invoicesList?.data || []);
+              
+              for (const inv of invoices) {
+                // Verificar todos los campos posibles
+                if (inv.unique_id === cleanInvoiceId || 
+                    inv.id === cleanInvoiceId || 
+                    inv.invoice_id === cleanInvoiceId ||
+                    (inv.id && inv.id.toString() === cleanInvoiceId)) {
+                  invoiceValid = true;
+                  invoiceData = inv;
+                  break;
+                }
+              }
+              
+              if (invoiceValid || invoices.length < 50) break;
+            } catch (apiError) {
+              console.error(`[TICKET] Error fetching invoice page ${page}:`, apiError.message);
+              if (apiError.status === 429) break; // Rate limit
+            }
+          }
+        } catch (apiError) {
+          console.error('[TICKET] Error validating invoice:', apiError.message);
+          // Continuar sin validación si hay error de API (no bloquear al usuario)
+        }
+        
+        if (!invoiceValid) {
+          const invalidEmbed = new EmbedBuilder()
+            .setColor(0xff0000)
+            .setTitle('❌ Invalid Invoice ID')
+            .setDescription('The invoice ID you provided was not found in our system.')
+            .addFields(
+              {
+                name: '🔍 What to Check',
+                value: '• Make sure you copied the Invoice ID correctly\n• Verify the invoice exists in your SellAuth account\n• Check that the invoice belongs to this shop\n• Ensure the invoice ID format is correct',
+                inline: false
+              },
+              {
+                name: '💡 Invoice ID Format',
+                value: 'Format: `[11-15 alphanumeric]-[10-15 digits]`\nExample: `2bea7db417ecb-0000008698537`',
+                inline: false
+              }
+            )
+            .setFooter({ text: 'If you believe this is an error, contact support staff' })
+            .setTimestamp();
+          
+          await interaction.editReply({
+            embeds: [invalidEmbed]
+          });
+          return;
+        }
+      } catch (validationError) {
+        console.error('[TICKET] Error during invoice validation:', validationError);
+        // Continuar con la creación del ticket si hay error en la validación
+      }
       
       try {
         const result = await TicketManager.createTicket(guild, user, 'replaces', cleanInvoiceId);
@@ -2001,6 +2977,8 @@ export class Bot {
                      stepName === 'staff_feedbacks_channel' ? 'Staff Feedbacks Channel' :
                      stepName === 'vouches_channel' ? 'Vouches/Feedbacks Channel' :
                      stepName === 'verification_channel' ? 'Verification Channel' :
+                     stepName === 'welcome_channel' ? 'Welcome Channel' :
+                     stepName === 'application_review_category' ? 'Staff Applications Review Category' :
                      'Channel';
         modal = SetupWizard.createChannelModal(stepName, label);
       }
@@ -2023,17 +3001,40 @@ export class Bot {
     }
 
     const stepName = interaction.customId.replace('setup_modal_', '');
-    const value = stepName.includes('role') 
-      ? interaction.fields.getTextInputValue('role_id')
-      : interaction.fields.getTextInputValue('channel_id');
+    
+    // Website link is a string URL, not an ID
+    if (stepName === 'website_link') {
+      const value = interaction.fields.getTextInputValue('website_url');
+      if (!value || value.trim().length === 0) {
+        await interaction.reply({
+          content: '❌ Website URL cannot be empty.',
+          ephemeral: true
+        });
+        return;
+      }
+      // Validate URL format
+      try {
+        new URL(value);
+      } catch (urlError) {
+        await interaction.reply({
+          content: '❌ Invalid URL format. Please enter a valid URL (e.g., https://example.com).',
+          ephemeral: true
+        });
+        return;
+      }
+      session.config.websiteLink = value.trim();
+    } else {
+      const value = stepName.includes('role') 
+        ? interaction.fields.getTextInputValue('role_id')
+        : interaction.fields.getTextInputValue('channel_id');
 
-    if (!/^\d+$/.test(value)) {
-      await interaction.reply({
-        content: '❌ The ID must be a valid number.',
-        ephemeral: true
-      });
-      return;
-    }
+      if (!/^\d+$/.test(value)) {
+        await interaction.reply({
+          content: '❌ The ID must be a valid number.',
+          ephemeral: true
+        });
+        return;
+      }
 
     try {
       if (stepName.includes('role')) {
@@ -2061,6 +3062,14 @@ export class Bot {
           });
           return;
         }
+        // Verify category type for application_review_category
+        if (stepName === 'application_review_category' && channel.type !== 4) {
+          await interaction.reply({
+            content: '❌ The application review category must be a category channel.',
+            ephemeral: true
+          });
+          return;
+        }
         const configKey = stepName === 'log_channel' ? 'logChannelId' :
                          stepName === 'transcript_channel' ? 'transcriptChannelId' :
                          stepName === 'rating_channel' ? 'ratingChannelId' :
@@ -2074,6 +3083,8 @@ export class Bot {
                          stepName === 'staff_feedbacks_channel' ? 'staffFeedbacksChannelId' :
                          stepName === 'vouches_channel' ? 'vouchesChannelId' :
                          stepName === 'verification_channel' ? 'verificationChannelId' :
+                         stepName === 'welcome_channel' ? 'welcomeChannelId' :
+                         stepName === 'application_review_category' ? 'applicationReviewCategoryId' :
                          'channelId';
         session.config[configKey] = value;
       }
@@ -2171,6 +3182,9 @@ export class Bot {
       verificationChannelId: session.config.verificationChannelId || null,
       memberRoleId: session.config.memberRoleId || null,
       verificationCategoryId: session.config.verificationCategoryId || null,
+      welcomeChannelId: session.config.welcomeChannelId || null,
+      websiteLink: session.config.websiteLink || config.SHOP_URL || 'https://sellauth.com',
+      applicationReviewCategoryId: session.config.applicationReviewCategoryId || null,
       configuredBy: interaction.user.id,
       configuredByUsername: interaction.user.username
     });
@@ -2298,6 +3312,21 @@ export class Bot {
           name: '👥 Member Role',
           value: session.config.memberRoleId ? `<@&${session.config.memberRoleId}>` : 'Not configured',
           inline: true
+        },
+        {
+          name: '👋 Welcome Channel',
+          value: session.config.welcomeChannelId ? `<#${session.config.welcomeChannelId}>` : 'Not configured',
+          inline: true
+        },
+        {
+          name: '🌐 Website Link',
+          value: session.config.websiteLink || 'Not configured',
+          inline: true
+        },
+        {
+          name: '📋 Staff Apps Category',
+          value: session.config.applicationReviewCategoryId ? `<#${session.config.applicationReviewCategoryId}>` : 'Not configured',
+          inline: true
         }
       )
       .setFooter({ text: `Configured by ${interaction.user.username}` })
@@ -2308,6 +3337,39 @@ export class Bot {
       embeds: [embed],
       components: []
     });
+
+    // Send welcome message to welcome channel if configured
+    if (session.config.welcomeChannelId) {
+      try {
+        const welcomeChannel = await interaction.guild.channels.fetch(session.config.welcomeChannelId);
+        if (welcomeChannel) {
+          const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = await import('discord.js');
+          const welcomeEmbed = new EmbedBuilder()
+            .setColor(0x5865F2)
+            .setTitle(`¡Te damos la bienvenida a ${interaction.guild.name}!`)
+            .setDescription(`Aquí empieza el canal de ${welcomeChannel.name}.\n\n**EN:** Official server website link and info\n**ES:** Enlace e información oficial del sitio web`)
+            .setThumbnail(interaction.guild.iconURL({ dynamic: true, size: 256 }))
+            .setFooter({ text: `${interaction.guild.name} | Welcome System` })
+            .setTimestamp();
+
+          const websiteUrl = guildConfig?.websiteLink || config.SHOP_URL || 'https://sellauth.com';
+          const websiteButton = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+              .setLabel('Go to website')
+              .setStyle(ButtonStyle.Link)
+              .setURL(websiteUrl)
+          );
+
+          await welcomeChannel.send({
+            embeds: [welcomeEmbed],
+            components: [websiteButton]
+          });
+          console.log(`[SETUP] ✅ Welcome message sent to ${welcomeChannel.name}`);
+        }
+      } catch (welcomeError) {
+        console.error('[SETUP] Error sending welcome message:', welcomeError);
+      }
+    }
 
     // Enviar mensaje al canal de vouches si está configurado
     if (session.config.vouchesChannelId) {

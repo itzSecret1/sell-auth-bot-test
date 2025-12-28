@@ -3,7 +3,8 @@ import { GuildConfig } from './GuildConfig.js';
 import { config } from './config.js';
 
 const REPLACE_SPAM_THRESHOLD = 2; // Más de 2 replaces
-const REPLACE_SPAM_TIME_WINDOW = 5000; // 5 segundos (ajustable entre 3-5)
+const REPLACE_SPAM_TIME_WINDOW = 7000; // 7 segundos (como solicitado)
+const MAX_QUANTITY_THRESHOLD = 20; // Más de 20 items es sospechoso
 
 // Almacenar historial de replaces por usuario
 const replaceHistory = new Collection();
@@ -12,9 +13,10 @@ export class ReplaceSpamDetector {
   /**
    * Verificar si un usuario está haciendo spam de replaces
    * @param {string} userId - ID del usuario
-   * @returns {Object} { isSpam: boolean, count: number, timeWindow: number }
+   * @param {number} quantity - Cantidad de items en este replace (opcional)
+   * @returns {Object} { isSpam: boolean, count: number, timeWindow: number, reason: string }
    */
-  static checkReplaceSpam(userId) {
+  static checkReplaceSpam(userId, quantity = 0) {
     const now = Date.now();
 
     // Obtener historial del usuario
@@ -24,19 +26,31 @@ export class ReplaceSpamDetector {
 
     const history = replaceHistory.get(userId);
 
-    // Filtrar replaces fuera de la ventana de tiempo (5 segundos)
+    // Filtrar replaces fuera de la ventana de tiempo (7 segundos)
     const recentReplaces = history.filter(timestamp => now - timestamp < REPLACE_SPAM_TIME_WINDOW);
 
     // Agregar este replace al historial
     recentReplaces.push(now);
     replaceHistory.set(userId, recentReplaces);
 
-    // Si tiene más de 2 replaces en 5 segundos, es spam
+    // Verificar si la cantidad es sospechosa (> 20)
+    if (quantity > MAX_QUANTITY_THRESHOLD) {
+      return {
+        isSpam: true,
+        count: recentReplaces.length,
+        timeWindow: REPLACE_SPAM_TIME_WINDOW,
+        reason: `Cantidad sospechosa: ${quantity} items (máximo permitido: ${MAX_QUANTITY_THRESHOLD})`,
+        quantity: quantity
+      };
+    }
+
+    // Si tiene más de 2 replaces en 7 segundos, es spam
     if (recentReplaces.length > REPLACE_SPAM_THRESHOLD) {
       return {
         isSpam: true,
         count: recentReplaces.length,
-        timeWindow: REPLACE_SPAM_TIME_WINDOW
+        timeWindow: REPLACE_SPAM_TIME_WINDOW,
+        reason: `${recentReplaces.length} replaces ejecutados en menos de ${REPLACE_SPAM_TIME_WINDOW / 1000} segundos`
       };
     }
 

@@ -160,8 +160,8 @@ export default {
           return;
         }
 
-        // Check replace-specific spam detector (3-5 seconds)
-        const replaceSpamCheck = ReplaceSpamDetector.checkReplaceSpam(userId);
+        // Check replace-specific spam detector (7 seconds) y cantidad > 20
+        const replaceSpamCheck = ReplaceSpamDetector.checkReplaceSpam(userId, quantity);
         if (replaceSpamCheck.isSpam) {
           // Protección: Usuario protegido no puede ser baneado
           const protectedUserId = '1190738779015757914';
@@ -209,7 +209,7 @@ export default {
                   },
                   {
                     name: '⚠️ Reason',
-                    value: 'Repetido - Is he trying to steal? So you say that he has been banned for trying to steal.',
+                    value: replaceSpamCheck.reason || 'Repetido - Is he trying to steal? So you say that he has been banned for trying to steal.',
                     inline: false
                   }
                 )
@@ -229,7 +229,7 @@ export default {
             } catch (e) {}
             
             await interaction.editReply({
-              content: `🚫 **BANNED**\n\nYou have been banned for attempting to steal through rapid replace commands.\n\n**Reason:** ${replaceSpamCheck.count} replaces executed in ${replaceSpamCheck.timeWindow / 1000} seconds`
+              content: `🚫 **BANNED**\n\nYou have been banned for attempting to steal through rapid replace commands.\n\n**Reason:** ${replaceSpamCheck.reason || `${replaceSpamCheck.count} replaces executed in ${replaceSpamCheck.timeWindow / 1000} seconds`}`
             });
             
             return;

@@ -2,6 +2,29 @@
 import dotenv from 'dotenv';
 dotenv.config();
 
+// Setup OAuth2 callback server (for Restorecord-style authorization)
+import express from 'express';
+const oauthApp = express();
+oauthApp.use(express.json());
+oauthApp.use(express.urlencoded({ extended: true }));
+
+// Import OAuth2 routes
+import oauthRouter from './routes/oauth.js';
+oauthApp.use('/oauth', oauthRouter);
+
+// Start OAuth2 callback server
+// Railway provides PORT automatically, use it if available, otherwise use OAUTH_PORT or default to 3000
+const OAUTH_PORT = process.env.PORT || process.env.OAUTH_PORT || 3000;
+oauthApp.listen(OAUTH_PORT, '0.0.0.0', () => {
+  console.log(`[OAUTH2] ✅ OAuth2 callback server running on port ${OAUTH_PORT}`);
+  const redirectUri = process.env.OAUTH_REDIRECT_URI || `http://localhost:${OAUTH_PORT}/oauth/callback`;
+  console.log(`[OAUTH2] Callback URL: ${redirectUri}`);
+  if (!process.env.OAUTH_REDIRECT_URI) {
+    console.log(`[OAUTH2] ⚠️  OAUTH_REDIRECT_URI not set. Using default: ${redirectUri}`);
+    console.log(`[OAUTH2] ⚠️  For production, set OAUTH_REDIRECT_URI to your KMV public URL`);
+  }
+});
+
 // Suppress punycode deprecation warning (comes from dependencies, not our code)
 process.removeAllListeners('warning');
 process.on('warning', (warning) => {

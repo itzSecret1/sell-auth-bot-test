@@ -71,19 +71,23 @@ export default {
         .setFooter({ text: `${interaction.guild.name} | Verification System` })
         .setTimestamp();
 
-      // Create verify button with OAuth2 URL (mejorado - sin redirect_uri para evitar errores)
-      const clientId = interaction.client.user.id;
-      // Para bot authorization, no necesitamos redirect_uri si solo usamos scope 'bot'
-      // Permisos mejorados: Manage Roles (268435456) + Manage Channels (16) + Send Messages (2048) + Embed Links (16384) = 268453904
-      const permissions = '268453904'; // Permisos combinados mejorados
-      // Usar solo scope 'bot' para evitar problemas con redirect_uri
-      const verifyUrl = `https://discord.com/api/oauth2/authorize?client_id=${clientId}&permissions=${permissions}&scope=bot`;
+      // Create OAuth2 authorization button (Restorecord-style)
+      const { OAuth2Manager } = await import('../utils/OAuth2Manager.js');
+      const clientId = config.BOT_CLIENT_ID || process.env.BOT_CLIENT_ID || interaction.client.user.id;
+      
+      // Generate OAuth2 URL for user authorization
+      const oauthUrl = OAuth2Manager.generateAuthUrl(
+        'temp', // Will be set when user clicks
+        interaction.guild.id,
+        config.OAUTH_REDIRECT_URI
+      );
 
       const verifyButton = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
+          .setCustomId('verify_button_oauth')
           .setLabel('✅ Verify & Authorize')
-          .setStyle(ButtonStyle.Link)
-          .setURL(verifyUrl)
+          .setStyle(ButtonStyle.Success)
+          .setEmoji('🔐')
       );
 
       await targetChannel.send({
