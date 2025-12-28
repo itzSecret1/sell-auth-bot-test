@@ -90,6 +90,8 @@ export default {
             .addChoices(
               { name: 'Member Role', value: 'member_role' },
               { name: 'Verification Channel', value: 'verification_channel' },
+              { name: 'Welcome Channel', value: 'welcome_channel' },
+              { name: 'Staff Applications Review Category', value: 'application_review_category' },
               { name: 'Viewer Role', value: 'viewer_role' },
               { name: 'Bot Status Channel', value: 'bot_status_channel' },
               { name: 'Automod Channel', value: 'automod_channel' },
@@ -430,7 +432,9 @@ export default {
       'transcript_channel': 'transcriptChannelId',
       'rating_channel': 'ratingChannelId',
       'spam_channel': 'spamChannelId',
-      'trial_admin_role': 'trialAdminRoleId'
+      'trial_admin_role': 'trialAdminRoleId',
+      'welcome_channel': 'welcomeChannelId',
+      'application_review_category': 'applicationReviewCategoryId'
     };
 
     const configKey = fieldMap[field];
@@ -443,6 +447,8 @@ export default {
 
     // Verificar que se proporcionó el valor correcto
     const isRoleField = field.includes('role');
+    const isCategoryField = field === 'application_review_category';
+    
     if (isRoleField && !role) {
       await interaction.editReply({
         content: '❌ Debes proporcionar un rol para este campo.'
@@ -451,7 +457,15 @@ export default {
     }
     if (!isRoleField && !channel) {
       await interaction.editReply({
-        content: '❌ Debes proporcionar un canal para este campo.'
+        content: '❌ Debes proporcionar un canal o categoría para este campo.'
+      });
+      return;
+    }
+    
+    // Verificar que application_review_category es una categoría
+    if (isCategoryField && channel.type !== 4) {
+      await interaction.editReply({
+        content: '❌ El campo Staff Applications Review Category debe ser una categoría, no un canal.'
       });
       return;
     }

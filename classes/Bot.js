@@ -2961,6 +2961,8 @@ export class Bot {
         const label = stepName === 'admin_role' ? 'Admin Role' :
                      stepName === 'staff_role' ? 'Trial Staff Role' :
                      stepName === 'customer_role' ? 'Customer Role' :
+                     stepName === 'member_role' ? 'Member Role' :
+                     stepName === 'viewer_role' ? 'Viewer Role' :
                      'Trial Admin Role';
         modal = SetupWizard.createRoleModal(stepName, label);
       } else {
