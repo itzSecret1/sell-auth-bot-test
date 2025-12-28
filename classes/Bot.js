@@ -2864,7 +2864,7 @@ export class Bot {
     if (!AUTHORIZED_USER_IDS.includes(interaction.user.id)) {
       await interaction.reply({
         content: '❌ You do not have permission to use this command.',
-        ephemeral: true
+        flags: MessageFlags.Ephemeral
       });
       return;
     }
@@ -2896,13 +2896,13 @@ export class Bot {
     if (!session) {
       await interaction.reply({
         content: '❌ No active configuration session. Use `/setup start` to begin.',
-        ephemeral: true
+        flags: MessageFlags.Ephemeral
       });
       return;
     }
 
     if (customId === 'setup_next') {
-      const maxSteps = 17; // 18 pasos (0-17) - añadidos verification channel y member role
+      const maxSteps = 21; // 22 pasos (0-21) - incluye welcome channel, website link, y application review category
       if (session.step < maxSteps) {
         session.step++;
         const stepData = SetupWizard.getStepEmbed(session.step, session);
@@ -2930,7 +2930,7 @@ export class Bot {
 
     if (customId === 'setup_skip') {
       session.step++;
-      const maxSteps = 17; // 18 pasos (0-17)
+      const maxSteps = 21; // 22 pasos (0-21)
       if (session.step <= maxSteps) {
         const stepData = SetupWizard.getStepEmbed(session.step, session);
         if (stepData) {
