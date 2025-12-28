@@ -1,4 +1,4 @@
-import { SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits, ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle } from 'discord.js';
+import { SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits, ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle, MessageFlags } from 'discord.js';
 import { GuildConfig } from '../utils/GuildConfig.js';
 import { config } from '../utils/config.js';
 
@@ -132,7 +132,7 @@ export default {
       if (!isAuthorized && !isOwner) {
         await interaction.reply({
           content: '❌ No tienes permiso para usar este comando. Solo los usuarios autorizados o el dueño del servidor pueden configurar el bot.',
-          ephemeral: true
+          flags: MessageFlags.Ephemeral
         });
         return;
       }
@@ -156,7 +156,7 @@ export default {
   },
 
   async startInteractiveSetup(interaction) {
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
     // Verificar permisos del bot
     const botMember = await interaction.guild.members.fetch(interaction.client.user.id);
@@ -235,7 +235,7 @@ export default {
   },
 
   async quickSetup(interaction) {
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
     const guildId = interaction.guild.id;
     const adminRole = interaction.options.getRole('admin_role');
@@ -398,7 +398,7 @@ export default {
   },
 
   async editConfig(interaction) {
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
     const guildId = interaction.guild.id;
     const field = interaction.options.getString('field');
