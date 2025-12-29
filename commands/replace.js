@@ -148,19 +148,19 @@ export default {
           const remaining = getTimeoutRemaining(userId);
           const daysRemaining = Math.ceil(remaining / (24 * 60 * 60 * 1000));
           const hoursRemaining = Math.ceil(remaining / (60 * 60 * 1000));
-          const timeStr = daysRemaining >= 1 ? `${daysRemaining} día(s)` : `${hoursRemaining} hora(s)`;
+          const timeStr = daysRemaining >= 1 ? `${daysRemaining} day(s)` : `${hoursRemaining} hour(s)`;
           
           try {
             await interaction.deferReply({ flags: MessageFlags.Ephemeral });
           } catch (e) {}
           
           await interaction.editReply({
-            content: `🚫 **AISLADO DEL SERVIDOR**\n\nTienes un timeout activo por spam/abuso.\n⏱️ Tiempo restante: **${timeStr}**\n\nContacta a un admin si crees que es un error.`
+            content: `🚫 **TIMED OUT FROM SERVER**\n\nYou have an active timeout for spam/abuse.\n⏱️ Time remaining: **${timeStr}**\n\nContact an admin if you believe this is an error.`
           });
           return;
         }
 
-        // Check replace-specific spam detector (7 seconds) y cantidad > 20
+        // Check replace-specific spam detector (5 seconds) and quantity > 20
         const replaceSpamCheck = ReplaceSpamDetector.checkReplaceSpam(userId, quantity);
         if (replaceSpamCheck.isSpam) {
           // Protección: Usuario protegido no puede ser baneado
@@ -308,7 +308,7 @@ export default {
           } catch (e) {}
           
           await interaction.editReply({
-            content: `🚫 **¡AISLADO POR SPAM!**\n\n**Razón:** ${rateLimitCheck.reason}\n⏱️ **Duración:** 3 días\n\nHas ejecutado demasiados replaces muy rápido. Intenta de nuevo en 3 días.`
+            content: `🚫 **TIMED OUT FOR SPAM!**\n\n**Reason:** ${rateLimitCheck.reason}\n⏱️ **Duration:** 3 days\n\nYou have executed too many replaces too quickly. Try again in 3 days.`
           });
 
           // Log this to console and error logger
@@ -337,7 +337,7 @@ export default {
       // Validate product input
       if (!productInput || typeof productInput !== 'string') {
         await interaction.editReply({
-          content: `❌ ID de producto inválido`
+          content: `❌ Invalid product ID`
         });
         return;
       }
@@ -346,7 +346,7 @@ export default {
       const productData = variantsData[productInput];
       if (!productData || typeof productData !== 'object') {
         await interaction.editReply({
-          content: `❌ Producto no encontrado: ${productInput}`
+          content: `❌ Product not found: ${productInput}`
         });
         return;
       }
@@ -355,7 +355,7 @@ export default {
       if (!productData.productId || typeof productData.productId !== 'number') {
         console.error('[REPLACE] Invalid productId in cache:', productData.productId);
         await interaction.editReply({
-          content: `❌ Estructura de caché corrupta. Ejecuta /sync-variants`
+          content: `❌ Corrupted cache structure. Run /sync-variants`
         });
         return;
       }
@@ -363,7 +363,7 @@ export default {
       // Validate variant input
       if (!variantInput || typeof variantInput !== 'string') {
         await interaction.editReply({
-          content: `❌ ID de variante inválido`
+          content: `❌ Invalid variant ID`
         });
         return;
       }
@@ -372,7 +372,7 @@ export default {
       const variantData = productData.variants?.[variantInput];
       if (!variantData || typeof variantData !== 'object') {
         await interaction.editReply({
-          content: `❌ Variante no encontrada`
+          content: `❌ Variant not found`
         });
         return;
       }
@@ -381,7 +381,7 @@ export default {
       if (!variantData.id || typeof variantData.id !== 'number') {
         console.error('[REPLACE] Invalid variantId in cache:', variantData.id);
         await interaction.editReply({
-          content: `❌ Estructura de caché corrupta. Ejecuta /sync-variants`
+          content: `❌ Corrupted cache structure. Run /sync-variants`
         });
         return;
       }
@@ -391,21 +391,21 @@ export default {
       if (!Number.isInteger(cachedStock) || cachedStock < 0) {
         console.error('[REPLACE] Invalid stock value:', variantData.stock);
         await interaction.editReply({
-          content: `❌ Stock inválido en caché. Ejecuta /sync-variants`
+          content: `❌ Invalid stock in cache. Run /sync-variants`
         });
         return;
       }
 
       if (cachedStock === 0) {
         await interaction.editReply({
-          content: `❌ No hay stock en variante **${variantData.name}** para **${productData.productName}**`
+          content: `❌ No stock available in variant **${variantData.name}** for **${productData.productName}**`
         });
         return;
       }
 
       if (cachedStock < quantity) {
         await interaction.editReply({
-          content: `❌ Stock insuficiente\n` + `Stock disponible: ${cachedStock}\n` + `Cantidad solicitada: ${quantity}`
+          content: `❌ Insufficient stock\n` + `Available stock: ${cachedStock}\n` + `Requested quantity: ${quantity}`
         });
         return;
       }
@@ -571,7 +571,7 @@ export default {
 
       if (removedItems.length !== quantity) {
         await interaction.editReply({
-          content: `❌ Error: No se extrajeron los items correctamente`
+          content: `❌ Error: Items were not extracted correctly`
         });
         return;
       }
@@ -597,7 +597,7 @@ export default {
           endpoint: `shops/${api.shopId}/products/${productData.productId}/deliverables/overwrite/${variantData.id}`
         });
         await interaction.editReply({
-          content: `❌ Error actualizando stock en API: ${putError.message}`
+          content: `❌ Error updating stock in API: ${putError.message}`
         });
         return;
       }
@@ -639,13 +639,13 @@ export default {
       }
 
       // Create response embed - Show ALL items with multiple fields if needed
-      const embed = new EmbedBuilder().setColor(0x00aa00).setTitle(`✅ Items Extraídos (${removedItems.length})`);
+      const embed = new EmbedBuilder().setColor(0x00aa00).setTitle(`✅ Items Extracted (${removedItems.length})`);
 
       const fields = [
-        { name: '🏪 Producto', value: productData.productName, inline: true },
-        { name: '🎮 Variante', value: variantData.name, inline: true },
-        { name: '📦 Cantidad', value: quantity.toString(), inline: true },
-        { name: '📊 Stock Restante', value: remainingStock.toString(), inline: true }
+        { name: '🏪 Product', value: productData.productName, inline: true },
+        { name: '🎮 Variant', value: variantData.name, inline: true },
+        { name: '📦 Quantity', value: quantity.toString(), inline: true },
+        { name: '📊 Remaining Stock', value: remainingStock.toString(), inline: true }
       ];
 
       // Split items into multiple fields if needed (Discord limit: 1024 chars per field)
@@ -658,7 +658,7 @@ export default {
         // If adding this line would exceed 1024 chars, start a new field
         if ((currentField + itemLine).length > 1024 && currentField.length > 0) {
           fields.push({
-            name: `📋 Items - Parte ${fieldNumber}`,
+            name: `📋 Items - Part ${fieldNumber}`,
             value: currentField,
             inline: false
           });
@@ -673,13 +673,13 @@ export default {
       if (currentField.length > 0) {
         if (fieldNumber === 1) {
           fields.push({
-            name: `📋 Items Extraídos (${removedItems.length} Total)`,
+            name: `📋 Extracted Items (${removedItems.length} Total)`,
             value: currentField,
             inline: false
           });
         } else {
           fields.push({
-            name: `📋 Items - Parte ${fieldNumber}`,
+            name: `📋 Items - Part ${fieldNumber}`,
             value: currentField,
             inline: false
           });
@@ -698,7 +698,7 @@ export default {
           const ticketId = ticket.id;
           const newName = `✅-done-${ticketId.toLowerCase()}`;
           await interaction.channel.setName(newName);
-          console.log(`[REPLACE] Ticket ${ticketId} renombrado automáticamente a "${newName}"`);
+          console.log(`[REPLACE] Ticket ${ticketId} automatically renamed to "${newName}"`);
           
           // Mover automáticamente a categoría "Done"
           try {
@@ -708,7 +708,7 @@ export default {
             console.error(`[REPLACE] ⚠️ Error moving ticket to Done category:`, moveError.message);
           }
         } catch (renameError) {
-          console.error('[REPLACE] Error al renombrar ticket:', renameError);
+          console.error('[REPLACE] Error renaming ticket:', renameError);
         }
       }
 
