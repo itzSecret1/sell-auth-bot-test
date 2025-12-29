@@ -903,35 +903,50 @@ export class TicketManager {
       if (!channel) throw new Error('Channel not found');
 
       // Actualizar embed de service rating
-      const serviceMsg = await channel.messages.fetch(ticket.serviceRatingMsgId);
-      if (serviceMsg) {
-        const updatedEmbed = new EmbedBuilder()
-          .setColor(0xffd700)
-          .setTitle('★ Service Rating')
-          .setDescription('Please rate the customer service you received.')
-          .addFields({
-            name: 'ID',
-            value: ticketId,
-            inline: false
-          })
-          .setTimestamp();
+      // Verificar que existe serviceRatingMsgId antes de intentar obtener el mensaje
+      if (ticket.serviceRatingMsgId) {
+        try {
+          const serviceMsg = await channel.messages.fetch(ticket.serviceRatingMsgId).catch(() => null);
+          if (serviceMsg) {
+            const updatedEmbed = new EmbedBuilder()
+              .setColor(0xffd700)
+              .setTitle('★ Service Rating')
+              .setDescription('Please rate the customer service you received.')
+              .addFields({
+                name: 'ID',
+                value: ticketId,
+                inline: false
+              })
+              .setTimestamp();
 
-        const updatedRow = new ActionRowBuilder();
-        for (let i = 1; i <= 5; i++) {
-          const style = i <= rating ? ButtonStyle.Success : ButtonStyle.Secondary;
-          updatedRow.addComponents(
-            new ButtonBuilder()
-              .setCustomId(`rating_service_${i}_${ticketId}`)
-              .setLabel('⭐')
-              .setStyle(style)
-              .setDisabled(true)
-          );
+            const updatedRow = new ActionRowBuilder();
+            for (let i = 1; i <= 5; i++) {
+              const style = i <= rating ? ButtonStyle.Success : ButtonStyle.Secondary;
+              updatedRow.addComponents(
+                new ButtonBuilder()
+                  .setCustomId(`rating_service_${i}_${ticketId}`)
+                  .setLabel('⭐')
+                  .setStyle(style)
+                  .setDisabled(true)
+              );
+            }
+
+            await serviceMsg.edit({
+              embeds: [updatedEmbed],
+              components: [updatedRow]
+            }).catch(err => {
+              console.warn(`[TICKET] Could not edit service rating message: ${err.message}`);
+              // Continuar aunque no se pueda editar el mensaje
+            });
+          } else {
+            console.warn(`[TICKET] Service rating message ${ticket.serviceRatingMsgId} not found, continuing anyway`);
+          }
+        } catch (msgError) {
+          console.warn(`[TICKET] Error fetching service rating message: ${msgError.message}`);
+          // Continuar aunque no se pueda obtener el mensaje
         }
-
-        await serviceMsg.edit({
-          embeds: [updatedEmbed],
-          components: [updatedRow]
-        });
+      } else {
+        console.warn(`[TICKET] No serviceRatingMsgId found for ticket ${ticketId}, skipping message update`);
       }
 
       // Ahora mostrar Staff Rating (obligatoria)
@@ -1000,35 +1015,50 @@ export class TicketManager {
       if (!channel) throw new Error('Channel not found');
 
       // Actualizar embed de staff rating
-      const staffMsg = await channel.messages.fetch(ticket.staffRatingMsgId);
-      if (staffMsg) {
-        const updatedEmbed = new EmbedBuilder()
-          .setColor(0xffd700)
-          .setTitle('★ Staff Rating')
-          .setDescription('Now rate the staff member who assisted you.')
-          .addFields({
-            name: 'ID',
-            value: ticketId,
-            inline: false
-          })
-          .setTimestamp();
+      // Verificar que existe staffRatingMsgId antes de intentar obtener el mensaje
+      if (ticket.staffRatingMsgId) {
+        try {
+          const staffMsg = await channel.messages.fetch(ticket.staffRatingMsgId).catch(() => null);
+          if (staffMsg) {
+            const updatedEmbed = new EmbedBuilder()
+              .setColor(0xffd700)
+              .setTitle('★ Staff Rating')
+              .setDescription('Now rate the staff member who assisted you.')
+              .addFields({
+                name: 'ID',
+                value: ticketId,
+                inline: false
+              })
+              .setTimestamp();
 
-        const updatedRow = new ActionRowBuilder();
-        for (let i = 1; i <= 5; i++) {
-          const style = i <= rating ? ButtonStyle.Success : ButtonStyle.Secondary;
-          updatedRow.addComponents(
-            new ButtonBuilder()
-              .setCustomId(`rating_staff_${i}_${ticketId}`)
-              .setLabel('⭐')
-              .setStyle(style)
-              .setDisabled(true)
-          );
+            const updatedRow = new ActionRowBuilder();
+            for (let i = 1; i <= 5; i++) {
+              const style = i <= rating ? ButtonStyle.Success : ButtonStyle.Secondary;
+              updatedRow.addComponents(
+                new ButtonBuilder()
+                  .setCustomId(`rating_staff_${i}_${ticketId}`)
+                  .setLabel('⭐')
+                  .setStyle(style)
+                  .setDisabled(true)
+              );
+            }
+
+            await staffMsg.edit({
+              embeds: [updatedEmbed],
+              components: [updatedRow]
+            }).catch(err => {
+              console.warn(`[TICKET] Could not edit staff rating message: ${err.message}`);
+              // Continuar aunque no se pueda editar el mensaje
+            });
+          } else {
+            console.warn(`[TICKET] Staff rating message ${ticket.staffRatingMsgId} not found, continuing anyway`);
+          }
+        } catch (msgError) {
+          console.warn(`[TICKET] Error fetching staff rating message: ${msgError.message}`);
+          // Continuar aunque no se pueda obtener el mensaje
         }
-
-        await staffMsg.edit({
-          embeds: [updatedEmbed],
-          components: [updatedRow]
-        });
+      } else {
+        console.warn(`[TICKET] No staffRatingMsgId found for ticket ${ticketId}, skipping message update`);
       }
 
       // Verificar que ambas reviews estén completas
