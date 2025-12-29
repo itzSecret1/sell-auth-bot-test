@@ -19,7 +19,18 @@ export class Api {
     } catch (error) {
       const status = error.response?.status;
       const data = error.response?.data;
-      console.error(`[API GET] ${endpoint} - Status: ${status}`, data);
+      
+      // Logging mejorado para errores de autenticación
+      if (status === 401) {
+        console.error(`[API GET] ❌ CRITICAL: Authentication failed (401 Unauthenticated)`);
+        console.error(`[API GET]    Endpoint: ${endpoint}`);
+        console.error(`[API GET]    The SellAuth API key may be invalid or expired.`);
+        console.error(`[API GET]    Please check SA_API_KEY and SA_SHOP_ID environment variables.`);
+        console.error(`[API GET]    Response:`, data);
+      } else {
+        console.error(`[API GET] ${endpoint} - Status: ${status}`, data);
+      }
+      
       throw { message: 'Invalid response', status, data, error: error.message };
     }
   }
@@ -109,7 +120,18 @@ export class Api {
             }
           }
         } catch (e) {
-          console.error(`[API] Page ${page} error:`, e.message);
+          const errorStatus = e.status || e.data?.status;
+          const errorMessage = e.message || e.data?.message || 'Unknown error';
+          
+          console.error(`[API] Page ${page} error:`, errorMessage);
+          
+          // Si es error 401, detener inmediatamente y loguear como crítico
+          if (errorStatus === 401) {
+            console.error(`[API] ❌ CRITICAL: API authentication failed (401 Unauthenticated)`);
+            console.error(`[API]    The SellAuth API key may be invalid or expired.`);
+            console.error(`[API]    Please check SA_API_KEY and SA_SHOP_ID environment variables.`);
+          }
+          
           hasMore = false;
         }
       }

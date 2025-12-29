@@ -2631,12 +2631,41 @@ export class Bot {
               
               if (invoiceValid || invoices.length < 50) break;
             } catch (apiError) {
-              console.error(`[TICKET] Error fetching invoice page ${page}:`, apiError.message);
-              if (apiError.status === 429) break; // Rate limit
+              const errorStatus = apiError.status || apiError.data?.status;
+              const errorMessage = apiError.message || apiError.data?.message || 'Unknown error';
+              
+              console.error(`[TICKET] Error fetching invoice page ${page}:`, errorMessage);
+              console.error(`[TICKET]   Status: ${errorStatus}`);
+              
+              // Si es error 401 (No autenticado), detener inmediatamente
+              if (errorStatus === 401) {
+                console.error(`[TICKET] ❌ CRITICAL: API authentication failed (401 Unauthenticated)`);
+                console.error(`[TICKET]    The SellAuth API key may be invalid or expired.`);
+                console.error(`[TICKET]    Please check SA_API_KEY and SA_SHOP_ID environment variables.`);
+                break; // Detener búsqueda inmediatamente
+              }
+              
+              // Si es rate limit (429), detener también
+              if (errorStatus === 429) {
+                console.error(`[TICKET] ⚠️ Rate limit reached, stopping search`);
+                break;
+              }
             }
           }
         } catch (apiError) {
-          console.error('[TICKET] Error validating invoice:', apiError.message);
+          const errorStatus = apiError.status || apiError.data?.status;
+          const errorMessage = apiError.message || apiError.data?.message || 'Unknown error';
+          
+          console.error('[TICKET] Error validating invoice:', errorMessage);
+          console.error(`[TICKET]   Status: ${errorStatus}`);
+          
+          // Si es error 401, loguear como crítico
+          if (errorStatus === 401) {
+            console.error(`[TICKET] ❌ CRITICAL: API authentication failed (401 Unauthenticated)`);
+            console.error(`[TICKET]    The SellAuth API key may be invalid or expired.`);
+            console.error(`[TICKET]    Please check SA_API_KEY and SA_SHOP_ID environment variables.`);
+          }
+          
           // Continuar sin validación si hay error de API (no bloquear al usuario)
         }
         
@@ -3791,7 +3820,26 @@ export class Bot {
                     
                     if (invoicesList.length === 0) break;
                   } catch (e) {
-                    console.error(`[AUTO-REPLACE] Error fetching invoices page ${page}:`, e.message);
+                    const errorStatus = e.status || e.data?.status;
+                    const errorMessage = e.message || e.data?.message || 'Unknown error';
+                    
+                    console.error(`[AUTO-REPLACE] Error fetching invoices page ${page}:`, errorMessage);
+                    console.error(`[AUTO-REPLACE]   Status: ${errorStatus}`);
+                    
+                    // Si es error 401 (No autenticado), detener inmediatamente
+                    if (errorStatus === 401) {
+                      console.error(`[AUTO-REPLACE] ❌ CRITICAL: API authentication failed (401 Unauthenticated)`);
+                      console.error(`[AUTO-REPLACE]    The SellAuth API key may be invalid or expired.`);
+                      console.error(`[AUTO-REPLACE]    Please check SA_API_KEY and SA_SHOP_ID environment variables.`);
+                      break; // Detener búsqueda inmediatamente
+                    }
+                    
+                    // Si es rate limit (429), detener también
+                    if (errorStatus === 429) {
+                      console.error(`[AUTO-REPLACE] ⚠️ Rate limit reached, stopping search`);
+                      break;
+                    }
+                    
                     break;
                   }
                 }
@@ -4179,11 +4227,26 @@ export class Bot {
             }
           }
         } catch (apiError) {
-          console.error(`[INVOICE-VERIFY] Error fetching page ${page}:`, apiError.message);
-          if (apiError.status === 429) {
-            console.log(`[INVOICE-VERIFY] Rate limited, stopping search`);
+          const errorStatus = apiError.status || apiError.data?.status;
+          const errorMessage = apiError.message || apiError.data?.message || 'Unknown error';
+          
+          console.error(`[INVOICE-VERIFY] Error fetching page ${page}:`, errorMessage);
+          console.error(`[INVOICE-VERIFY]   Status: ${errorStatus}`);
+          
+          // Si es error 401 (No autenticado), detener inmediatamente
+          if (errorStatus === 401) {
+            console.error(`[INVOICE-VERIFY] ❌ CRITICAL: API authentication failed (401 Unauthenticated)`);
+            console.error(`[INVOICE-VERIFY]    The SellAuth API key may be invalid or expired.`);
+            console.error(`[INVOICE-VERIFY]    Please check SA_API_KEY and SA_SHOP_ID environment variables.`);
+            break; // Detener búsqueda inmediatamente
+          }
+          
+          // Si es rate limit (429), detener también
+          if (errorStatus === 429) {
+            console.log(`[INVOICE-VERIFY] ⚠️ Rate limited, stopping search`);
             break; // Rate limit
           }
+          
           // Continuar con siguiente página en otros errores
         }
       }
