@@ -10,6 +10,7 @@ import {
 import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { config } from './config.js';
 import { GuildConfig } from './GuildConfig.js';
+import { learnFromTicket } from './TicketLearning.js';
 
 const TICKETS_FILE = './tickets.json';
 
@@ -1225,6 +1226,13 @@ export class TicketManager {
       ticket.closedAt = new Date().toISOString();
       ticket.closedBy = closedByUserId;
       saveTickets();
+
+      // Aprender del ticket cerrado
+      try {
+        learnFromTicket(ticket);
+      } catch (learnError) {
+        console.error('[TICKET] Error learning from ticket:', learnError);
+      }
 
       const channel = await guild.channels.fetch(ticket.channelId);
       if (!channel) throw new Error('Channel not found');

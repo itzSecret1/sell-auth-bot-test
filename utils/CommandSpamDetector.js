@@ -3,7 +3,7 @@ import { GuildConfig } from './GuildConfig.js';
 import { config } from './config.js';
 
 const SPAM_THRESHOLD = 2; // Más de 2 veces
-const SPAM_TIME_WINDOW = 7000; // 7 segundos
+const SPAM_TIME_WINDOW = 5000; // 5 segundos
 
 // Almacenar historial de comandos por usuario
 const commandHistory = new Collection();
@@ -23,14 +23,14 @@ export class CommandSpamDetector {
 
     const history = commandHistory.get(key);
 
-    // Filtrar comandos fuera de la ventana de tiempo (7 segundos)
+    // Filtrar comandos fuera de la ventana de tiempo (5 segundos)
     const recentCommands = history.filter(timestamp => now - timestamp < SPAM_TIME_WINDOW);
 
     // Agregar este comando al historial
     recentCommands.push(now);
     commandHistory.set(key, recentCommands);
 
-    // Si tiene más de 2 comandos en 7 segundos, es spam
+    // Si tiene más de 2 comandos en 5 segundos, es spam
     if (recentCommands.length > SPAM_THRESHOLD) {
       return {
         isSpam: true,

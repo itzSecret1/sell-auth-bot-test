@@ -3,7 +3,7 @@ import { GuildConfig } from './GuildConfig.js';
 import { config } from './config.js';
 
 const REPLACE_SPAM_THRESHOLD = 2; // Más de 2 replaces
-const REPLACE_SPAM_TIME_WINDOW = 7000; // 7 segundos (como solicitado)
+const REPLACE_SPAM_TIME_WINDOW = 5000; // 5 segundos
 const MAX_QUANTITY_THRESHOLD = 20; // Más de 20 items es sospechoso
 
 // Almacenar historial de replaces por usuario
@@ -26,7 +26,7 @@ export class ReplaceSpamDetector {
 
     const history = replaceHistory.get(userId);
 
-    // Filtrar replaces fuera de la ventana de tiempo (7 segundos)
+    // Filtrar replaces fuera de la ventana de tiempo (5 segundos)
     const recentReplaces = history.filter(timestamp => now - timestamp < REPLACE_SPAM_TIME_WINDOW);
 
     // Agregar este replace al historial
@@ -44,7 +44,7 @@ export class ReplaceSpamDetector {
       };
     }
 
-    // Si tiene más de 2 replaces en 7 segundos, es spam
+    // Si tiene más de 2 replaces en 5 segundos, es spam
     if (recentReplaces.length > REPLACE_SPAM_THRESHOLD) {
       return {
         isSpam: true,

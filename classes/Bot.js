@@ -1212,7 +1212,7 @@ export class Bot {
                 `**ID:** ${interaction.user.id}\n` +
                 `**Razón:** ${reason}\n` +
                 `**Comando:** \`/${interaction.commandName}\`\n` +
-                `**Uso repetido:** ${spamCheck.count} veces en menos de 7 segundos`
+                `**Uso repetido:** ${spamCheck.count} veces en menos de 5 segundos`
             });
           }
           
@@ -1236,7 +1236,7 @@ export class Bot {
                   `**ID:** ${interaction.user.id}\n` +
                   `**Razón:** Repetido - Is he trying to steal?\n` +
                   `**Comando:** \`/${interaction.commandName}\`\n` +
-                  `**Uso repetido:** ${spamCheck.count} veces en menos de 7 segundos\n` +
+                  `**Uso repetido:** ${spamCheck.count} veces en menos de 5 segundos\n` +
                   `**Error al banear:** ${banError.message}`
               });
             }
