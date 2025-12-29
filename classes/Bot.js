@@ -1318,7 +1318,10 @@ export class Bot {
 
   async handleAcceptButton(interaction) {
     try {
-      await interaction.deferReply({ ephemeral: false });
+      // Para botones en mensajes existentes, usar deferUpdate en lugar de deferReply
+      if (!interaction.deferred && !interaction.replied) {
+        await interaction.deferUpdate();
+      }
       
       const customId = interaction.customId;
       const isConfirm = customId.startsWith('confirm_order_');
@@ -1331,9 +1334,10 @@ export class Bot {
       const adminRoleId = guildConfig?.adminRoleId || config.BOT_ADMIN_ROLE_ID;
       
       if (!adminRoleId || !interaction.member.roles.cache.has(adminRoleId)) {
-        await interaction.editReply({
-          content: '❌ Solo los administradores pueden confirmar o rechazar órdenes.'
-        });
+        await interaction.followUp({
+          content: '❌ Solo los administradores pueden confirmar o rechazar órdenes.',
+          ephemeral: true
+        }).catch(() => {});
         return;
       }
       
@@ -1341,16 +1345,18 @@ export class Bot {
       const order = PendingOrders.getPendingOrder(orderId);
       
       if (!order) {
-        await interaction.editReply({
-          content: `❌ Orden no encontrada: ${orderId}`
-        });
+        await interaction.followUp({
+          content: `❌ Orden no encontrada: ${orderId}`,
+          ephemeral: true
+        }).catch(() => {});
         return;
       }
       
       if (order.status !== 'pending') {
-        await interaction.editReply({
-          content: `❌ Esta orden ya fue procesada (Estado: ${order.status})`
-        });
+        await interaction.followUp({
+          content: `❌ Esta orden ya fue procesada (Estado: ${order.status})`,
+          ephemeral: true
+        }).catch(() => {});
         return;
       }
       
@@ -1359,15 +1365,28 @@ export class Bot {
         const { default: confirmOrderCommand } = await import('../commands/confirm-order.js');
         
         // Simular interacción para confirm-order
+        // Nota: La interacción ya fue diferida con deferUpdate(), así que:
+        // - deferReply debe ser un no-op (ya diferido)
+        // - editReply debe usar followUp porque deferUpdate no permite editReply
         const mockInteraction = {
           ...interaction,
           options: {
             getString: () => orderId
           },
-          editReply: interaction.editReply.bind(interaction),
+          deferReply: async () => {
+            // Ya diferido, no hacer nada
+            return Promise.resolve();
+          },
+          editReply: async (options) => {
+            // Usar followUp en lugar de editReply porque deferUpdate no permite editReply
+            return await interaction.followUp({ ...options, ephemeral: true });
+          },
+          followUp: interaction.followUp?.bind(interaction) || (async () => {}),
           guild: interaction.guild,
           user: interaction.user,
-          member: interaction.member
+          member: interaction.member,
+          deferred: true,
+          replied: false
         };
         
         await confirmOrderCommand.execute(mockInteraction, this.api);
@@ -1414,15 +1433,17 @@ export class Bot {
           components: [] // Remover botones
         });
         
-        await interaction.editReply({
-          content: `❌ Order **${orderId}** rejected. User has been notified.`
-        });
+        await interaction.followUp({
+          content: `❌ Order **${orderId}** rejected. User has been notified.`,
+          ephemeral: true
+        }).catch(() => {});
       }
       
     } catch (error) {
       console.error('[ACCEPT] Error:', error);
-      await interaction.editReply({
-        content: `❌ Error: ${error.message}`
+      await interaction.followUp({
+        content: `❌ Error: ${error.message}`,
+        ephemeral: true
       }).catch(() => {});
     }
   }

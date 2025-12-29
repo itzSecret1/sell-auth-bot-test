@@ -30,6 +30,38 @@ export default {
         return;
       }
 
+      if (ticket.closed) {
+        await interaction.editReply({
+          content: '❌ This ticket is already closed.'
+        });
+        return;
+      }
+
+      // Verificar que el ticket haya sido reclamado por staff
+      const guildConfig = GuildConfig.getConfig(interaction.guild.id);
+      const staffRoleId = guildConfig?.staffRoleId || config.BOT_STAFF_ROLE_ID;
+      const adminRoleId = guildConfig?.adminRoleId || config.BOT_ADMIN_ROLE_ID;
+      const hasStaffRole = staffRoleId && interaction.member.roles.cache.has(staffRoleId);
+      const hasAdminRole = adminRoleId && interaction.member.roles.cache.has(adminRoleId);
+      
+      // Solo verificar reclamación si es staff (no admin)
+      if (hasStaffRole && !hasAdminRole) {
+        if (!ticket.claimedBy) {
+          await interaction.editReply({
+            content: '❌ This ticket must be claimed by staff before it can be managed. Please use the claim button first.'
+          });
+          return;
+        }
+        
+        // Verificar que el ticket fue reclamado por el staff actual
+        if (ticket.claimedBy !== interaction.user.id) {
+          await interaction.editReply({
+            content: `❌ This ticket has been claimed by another staff member. Only the staff member who claimed it can manage it.`
+          });
+          return;
+        }
+      }
+
       // No permitir remover al creador del ticket
       if (ticket.userId === targetUser.id) {
         await interaction.editReply({
