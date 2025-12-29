@@ -1867,14 +1867,35 @@ export class TicketManager {
       const permissionOverwrites = channel.permissionOverwrites.cache;
 
       // Verificar permisos del usuario creador
-      const userOverwrite = permissionOverwrites.get(ticket.userId);
-      if (userOverwrite) {
-        const hasAttachFiles = userOverwrite.allow.has(PermissionFlagsBits.AttachFiles);
-        const hasEmbedLinks = userOverwrite.allow.has(PermissionFlagsBits.EmbedLinks);
+      try {
+        // Verificar que el usuario existe antes de intentar crear/editar permisos
+        const user = await guild.members.fetch(ticket.userId).catch(() => null);
+        if (!user) {
+          console.warn(`[TICKET] ⚠️ User ${ticket.userId} not found in guild, skipping user permission update`);
+        } else {
         
-        if (!hasAttachFiles || !hasEmbedLinks) {
+        const userOverwrite = permissionOverwrites.get(ticket.userId);
+        if (userOverwrite) {
+          const hasAttachFiles = userOverwrite.allow.has(PermissionFlagsBits.AttachFiles);
+          const hasEmbedLinks = userOverwrite.allow.has(PermissionFlagsBits.EmbedLinks);
+          
+          if (!hasAttachFiles || !hasEmbedLinks) {
+            needsUpdate = true;
+            await channel.permissionOverwrites.edit(user, {
+              ViewChannel: true,
+              SendMessages: true,
+              AttachFiles: true,
+              ReadMessageHistory: true,
+              EmbedLinks: true,
+              UseExternalEmojis: true,
+              UseExternalStickers: true
+            });
+            console.log(`[TICKET] ✅ Updated permissions for user ${ticket.userId} in ticket ${ticket.id}`);
+          }
+        } else {
+          // Si no tiene overwrite, crear uno
           needsUpdate = true;
-          await channel.permissionOverwrites.edit(ticket.userId, {
+          await channel.permissionOverwrites.create(user, {
             ViewChannel: true,
             SendMessages: true,
             AttachFiles: true,
@@ -1883,64 +1904,86 @@ export class TicketManager {
             UseExternalEmojis: true,
             UseExternalStickers: true
           });
-          console.log(`[TICKET] ✅ Updated permissions for user ${ticket.userId} in ticket ${ticket.id}`);
+          console.log(`[TICKET] ✅ Created permissions for user ${ticket.userId} in ticket ${ticket.id}`);
         }
-      } else {
-        // Si no tiene overwrite, crear uno
-        needsUpdate = true;
-        await channel.permissionOverwrites.create(ticket.userId, {
-          ViewChannel: true,
-          SendMessages: true,
-          AttachFiles: true,
-          ReadMessageHistory: true,
-          EmbedLinks: true,
-          UseExternalEmojis: true,
-          UseExternalStickers: true
-        });
-        console.log(`[TICKET] ✅ Created permissions for user ${ticket.userId} in ticket ${ticket.id}`);
+        }
+      } catch (userError) {
+        console.error(`[TICKET] ❌ Error handling user permissions:`, userError.message);
+        // Continuar con roles aunque user falle
       }
 
       // Verificar permisos de staff
       if (staffRoleId) {
-        const staffOverwrite = permissionOverwrites.get(staffRoleId);
-        if (staffOverwrite) {
-          const hasAttachFiles = staffOverwrite.allow.has(PermissionFlagsBits.AttachFiles);
-          const hasEmbedLinks = staffOverwrite.allow.has(PermissionFlagsBits.EmbedLinks);
+        try {
+          // Verificar que el rol existe antes de intentar crear/editar permisos
+          const staffRole = await guild.roles.fetch(staffRoleId).catch(() => null);
+          if (!staffRole) {
+            console.warn(`[TICKET] ⚠️ Staff role ${staffRoleId} not found, skipping staff permission update`);
+          } else {
           
-          if (!hasAttachFiles || !hasEmbedLinks) {
+          const staffOverwrite = permissionOverwrites.get(staffRoleId);
+          if (staffOverwrite) {
+            const hasAttachFiles = staffOverwrite.allow.has(PermissionFlagsBits.AttachFiles);
+            const hasEmbedLinks = staffOverwrite.allow.has(PermissionFlagsBits.EmbedLinks);
+            
+            if (!hasAttachFiles || !hasEmbedLinks) {
+              needsUpdate = true;
+              await channel.permissionOverwrites.edit(staffRole, {
+                ViewChannel: true,
+                SendMessages: true,
+                AttachFiles: true,
+                ReadMessageHistory: true,
+                EmbedLinks: true
+              });
+              console.log(`[TICKET] ✅ Updated permissions for staff role in ticket ${ticket.id}`);
+            }
+          } else {
             needsUpdate = true;
-            await channel.permissionOverwrites.edit(staffRoleId, {
+            await channel.permissionOverwrites.create(staffRole, {
               ViewChannel: true,
               SendMessages: true,
               AttachFiles: true,
               ReadMessageHistory: true,
               EmbedLinks: true
             });
-            console.log(`[TICKET] ✅ Updated permissions for staff role in ticket ${ticket.id}`);
+            console.log(`[TICKET] ✅ Created permissions for staff role in ticket ${ticket.id}`);
           }
-        } else {
-          needsUpdate = true;
-          await channel.permissionOverwrites.create(staffRoleId, {
-            ViewChannel: true,
-            SendMessages: true,
-            AttachFiles: true,
-            ReadMessageHistory: true,
-            EmbedLinks: true
-          });
-          console.log(`[TICKET] ✅ Created permissions for staff role in ticket ${ticket.id}`);
+          }
+        } catch (staffError) {
+          console.error(`[TICKET] ❌ Error handling staff role permissions:`, staffError.message);
+          // Continuar con admin role aunque staff falle
         }
       }
 
       // Verificar permisos de admin
       if (adminRoleId) {
-        const adminOverwrite = permissionOverwrites.get(adminRoleId);
-        if (adminOverwrite) {
-          const hasAttachFiles = adminOverwrite.allow.has(PermissionFlagsBits.AttachFiles);
-          const hasEmbedLinks = adminOverwrite.allow.has(PermissionFlagsBits.EmbedLinks);
+        try {
+          // Verificar que el rol existe antes de intentar crear/editar permisos
+          const adminRole = await guild.roles.fetch(adminRoleId).catch(() => null);
+          if (!adminRole) {
+            console.warn(`[TICKET] ⚠️ Admin role ${adminRoleId} not found, skipping admin permission update`);
+          } else {
           
-          if (!hasAttachFiles || !hasEmbedLinks) {
+          const adminOverwrite = permissionOverwrites.get(adminRoleId);
+          if (adminOverwrite) {
+            const hasAttachFiles = adminOverwrite.allow.has(PermissionFlagsBits.AttachFiles);
+            const hasEmbedLinks = adminOverwrite.allow.has(PermissionFlagsBits.EmbedLinks);
+            
+            if (!hasAttachFiles || !hasEmbedLinks) {
+              needsUpdate = true;
+              await channel.permissionOverwrites.edit(adminRole, {
+                ViewChannel: true,
+                SendMessages: true,
+                ManageChannels: true,
+                AttachFiles: true,
+                ReadMessageHistory: true,
+                EmbedLinks: true
+              });
+              console.log(`[TICKET] ✅ Updated permissions for admin role in ticket ${ticket.id}`);
+            }
+          } else {
             needsUpdate = true;
-            await channel.permissionOverwrites.edit(adminRoleId, {
+            await channel.permissionOverwrites.create(adminRole, {
               ViewChannel: true,
               SendMessages: true,
               ManageChannels: true,
@@ -1948,19 +1991,12 @@ export class TicketManager {
               ReadMessageHistory: true,
               EmbedLinks: true
             });
-            console.log(`[TICKET] ✅ Updated permissions for admin role in ticket ${ticket.id}`);
+            console.log(`[TICKET] ✅ Created permissions for admin role in ticket ${ticket.id}`);
           }
-        } else {
-          needsUpdate = true;
-          await channel.permissionOverwrites.create(adminRoleId, {
-            ViewChannel: true,
-            SendMessages: true,
-            ManageChannels: true,
-            AttachFiles: true,
-            ReadMessageHistory: true,
-            EmbedLinks: true
-          });
-          console.log(`[TICKET] ✅ Created permissions for admin role in ticket ${ticket.id}`);
+          }
+        } catch (adminError) {
+          console.error(`[TICKET] ❌ Error handling admin role permissions:`, adminError.message);
+          // Continuar aunque admin falle
         }
       }
 
