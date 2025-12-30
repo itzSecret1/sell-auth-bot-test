@@ -50,11 +50,13 @@ export default {
       const guildConfig = GuildConfig.getConfig(guild.id);
       const appsData = loadApplications();
 
-      // Buscar canal de anuncios (announces, ads, announcements)
+      // Buscar canal de anuncios (ads, announces, announcements, news)
       const announceChannels = guild.channels.cache.filter(ch => 
         ch.type === 0 && // Text channel
-        (ch.name.toLowerCase().includes('announce') || 
-         ch.name.toLowerCase().includes('ads') ||
+        (ch.name.toLowerCase().includes('ads') ||
+         ch.name.toLowerCase().includes('announce') || 
+         ch.name.toLowerCase().includes('announcements') ||
+         ch.name.toLowerCase().includes('news') ||
          ch.name.toLowerCase().includes('anuncio'))
       );
       
@@ -62,7 +64,7 @@ export default {
 
       if (!announceChannel) {
         await interaction.editReply({
-          content: '❌ No announcement channel found. Please create a channel named "announces" or "ads".'
+          content: '❌ No announcement channel found. Please create a channel named "ads", "announces", "announcements" or "news".'
         });
         return;
       }
@@ -149,7 +151,6 @@ export default {
           .setTitle('🛡️ Staff Applications are now Open!')
           .setDescription(
             'We are looking for **new members** who want to be part of the staff team and **improve the customer service** we currently have.\n\n' +
-            '> The approved member will receive a **monthly payment of $80.**\n\n' +
             'To apply, simply **follow the steps** that appear when you click the button below:'
           )
           .setFooter({ text: `${guild.name} • Staff Applications` })
