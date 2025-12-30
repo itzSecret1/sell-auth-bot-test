@@ -1812,8 +1812,17 @@ export class Bot {
 
     // Verificar si el usuario quiere cancelar
     if (content === 'cancel') {
-      await message.channel.send('❌ Application cancelled.');
+      await message.channel.send(`❌ Application cancelled by <@${message.author.id}>.\n\nThis channel will be closed in a few seconds...`);
       this.activeStaffApplications.delete(message.author.id);
+      
+      // Cerrar el canal después de 5 segundos
+      setTimeout(async () => {
+        try {
+          await message.channel.delete();
+        } catch (error) {
+          console.error('[STAFF-APP] Error closing cancelled application channel:', error);
+        }
+      }, 5000);
       return;
     }
 
