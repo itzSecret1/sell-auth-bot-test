@@ -171,32 +171,34 @@ export default {
       
       // El backup diario se hará automáticamente (ver Bot.js para el scheduler)
 
-      // Obtener nombre del servidor
-      const guildName = interaction.guild.name;
+      // Formato exacto como en las imágenes
+      const vouchedAt = new Date();
+      // Formato: YYYY-MM-DD HH:mm:ss
+      const year = vouchedAt.getFullYear();
+      const month = String(vouchedAt.getMonth() + 1).padStart(2, '0');
+      const day = String(vouchedAt.getDate()).padStart(2, '0');
+      const hours = String(vouchedAt.getHours()).padStart(2, '0');
+      const minutes = String(vouchedAt.getMinutes()).padStart(2, '0');
+      const seconds = String(vouchedAt.getSeconds()).padStart(2, '0');
+      const vouchedAtFormatted = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
       
-      // Crear embed del vouch (formato EXACTO como foto 4 y 5)
-      const categoryValue = product || 'Vouch';
-      
+      // Crear embed del vouch (formato EXACTO como en las imágenes)
       const vouchEmbed = new EmbedBuilder()
-        .setColor(0x5865F2)
-        .setTitle('✨ New Vouch Review')
-        .addFields(
-          {
-            name: '👤 User Information',
-            value: `Creator: <@${interaction.user.id}> ${interaction.user.username}\nCategory: ${categoryValue}\nMessages: 1`,
-            inline: false
-          },
-          {
-            name: '⭐ User Feedback',
-            value: '⭐'.repeat(stars) + '☆'.repeat(5 - stars) + `\n${message}`,
-            inline: false
-          }
+        .setColor(0x9B59B6) // Color púrpura como en las imágenes
+        .setAuthor({
+          name: '⭐ FeedBack System',
+          iconURL: interaction.user.displayAvatarURL({ dynamic: true })
+        })
+        .setDescription(
+          `**New vouch created!**\n\n` +
+          `${'⭐'.repeat(stars)}\n\n` +
+          `**Vouch:** ${message}\n\n` +
+          `**Vouch N°:** #${vouchNumber}\n` +
+          `**Vouched by:** <@${interaction.user.id}>\n` +
+          `**Vouched at:** ${vouchedAtFormatted}\n\n` +
+          `*${interaction.guild.name} Vouches System*`
         )
         .setThumbnail(interaction.user.displayAvatarURL({ dynamic: true }))
-        .setFooter({ 
-          text: `${guildName} • ${new Date().toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' })} ${new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}`,
-          iconURL: interaction.guild.iconURL({ dynamic: true }) || interaction.client.user.displayAvatarURL({ dynamic: true })
-        })
         .setTimestamp();
 
       // Agregar imagen si existe (como imagen separada, no en el embed)

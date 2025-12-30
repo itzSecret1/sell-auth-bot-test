@@ -621,6 +621,81 @@ export class TicketManager {
   }
 
   /**
+   * Detectar qué miembro del staff habló más en un ticket
+   */
+  static async detectMostActiveStaff(guild, ticket) {
+    try {
+      const channel = await guild.channels.fetch(ticket.channelId);
+      if (!channel) return null;
+
+      const guildConfig = GuildConfig.getConfig(guild.id);
+      const staffRoleId = guildConfig?.staffRoleId;
+      const adminRoleId = guildConfig?.adminRoleId;
+      
+      if (!staffRoleId && !adminRoleId) return null;
+
+      // Obtener todos los mensajes del ticket
+      let allMessages = [];
+      let lastMessageId = null;
+      let hasMore = true;
+      
+      while (hasMore && allMessages.length < 1000) {
+        const options = { limit: 100 };
+        if (lastMessageId) options.before = lastMessageId;
+        
+        const batch = await channel.messages.fetch(options);
+        if (batch.size === 0) {
+          hasMore = false;
+        } else {
+          allMessages = allMessages.concat(Array.from(batch.values()));
+          lastMessageId = batch.last().id;
+          if (batch.size < 100) hasMore = false;
+        }
+      }
+
+      // Contar mensajes por miembro del staff
+      const staffMessageCounts = new Map();
+      
+      for (const msg of allMessages) {
+        if (msg.author.bot) continue;
+        if (msg.author.id === ticket.userId) continue; // Ignorar mensajes del creador del ticket
+        
+        const member = await guild.members.fetch(msg.author.id).catch(() => null);
+        if (!member) continue;
+        
+        const isStaff = staffRoleId && member.roles.cache.has(staffRoleId);
+        const isAdmin = adminRoleId && member.roles.cache.has(adminRoleId);
+        
+        if (isStaff || isAdmin) {
+          const currentCount = staffMessageCounts.get(msg.author.id) || 0;
+          staffMessageCounts.set(msg.author.id, currentCount + 1);
+        }
+      }
+
+      // Encontrar el staff que más habló
+      let mostActiveStaffId = null;
+      let maxMessages = 0;
+      
+      for (const [staffId, count] of staffMessageCounts.entries()) {
+        if (count > maxMessages) {
+          maxMessages = count;
+          mostActiveStaffId = staffId;
+        }
+      }
+
+      if (mostActiveStaffId && maxMessages > 0) {
+        const mostActiveStaff = await guild.members.fetch(mostActiveStaffId).catch(() => null);
+        return mostActiveStaff;
+      }
+
+      return null;
+    } catch (error) {
+      console.error('[TICKET] Error detecting most active staff:', error);
+      return null;
+    }
+  }
+
+  /**
    * Reclamar un ticket
    */
   static async claimTicket(guild, ticketId, staffMember) {
@@ -988,7 +1063,7 @@ export class TicketManager {
   /**
    * Procesar rating de staff y cerrar ticket
    */
-  static async processStaffRating(guild, ticketId, rating, userId) {
+  static async processStaffRating(guild, ticketId, rating, userId, comment = null) {
     try {
       const ticket = ticketsData.tickets[ticketId];
       if (!ticket) throw new Error('Ticket not found');
@@ -1009,6 +1084,12 @@ export class TicketManager {
       }
 
       ticket.staffRating = rating;
+      // Guardar comentario si existe
+      if (comment && comment.trim().length > 0) {
+        ticket.staffRatingComment = comment.trim();
+      } else {
+        ticket.staffRatingComment = null;
+      }
       saveTickets();
 
       const channel = await guild.channels.fetch(ticket.channelId);
@@ -1070,6 +1151,31 @@ export class TicketManager {
         // Obtener el usuario que cerró el ticket
         const closedByUserId = ticket.closedBy || ticket.claimedBy || 'Sistema';
 
+        // Enviar mensaje de vouch en público (no privado) después del replay
+        const { GuildConfig } = await import('./GuildConfig.js');
+        const guildConfig = GuildConfig.getConfig(guild.id);
+        const vouchesChannelId = guildConfig?.vouchesChannelId;
+        
+        if (vouchesChannelId) {
+          const vouchesChannel = await guild.channels.fetch(vouchesChannelId).catch(() => null);
+          if (vouchesChannel) {
+            const vouchMessage = new EmbedBuilder()
+              .setColor(0x5865F2)
+              .setTitle('💬 Leave a Vouch!')
+              .setDescription(`Thank you for using our service! If you're satisfied, please consider leaving a vouch to help us grow.`)
+              .addFields({
+                name: '⭐ How to Leave a Vouch',
+                value: `Use the \`/vouch\` command in ${vouchesChannel} to share your experience!\n\n**What to include:**\n• Your experience with the service\n• Rating (1-5 stars)\n• Optional proof screenshot`,
+                inline: false
+              })
+              .setFooter({ text: 'Thank you for your support!' })
+              .setTimestamp();
+            
+            // Enviar en público (no privado)
+            await channel.send({ embeds: [vouchMessage] });
+          }
+        }
+
         // Enviar mensaje de que se cerrará en unos segundos
         const closingEmbed = new EmbedBuilder()
           .setColor(0xff9900)
@@ -1115,13 +1221,24 @@ export class TicketManager {
           const user = await guild.members.fetch(ticket.userId).catch(() => null);
           const claimedBy = ticket.claimedBy ? await guild.members.fetch(ticket.claimedBy).catch(() => null) : null;
 
+          // Crear link clickeable al ticket
+          let ticketLink = ticket.id;
+          try {
+            const channel = await guild.channels.fetch(ticket.channelId).catch(() => null);
+            if (channel) {
+              ticketLink = `[${ticket.id}](https://discord.com/channels/${guild.id}/${ticket.channelId})`;
+            }
+          } catch (error) {
+            console.error('[TICKET] Error creating ticket link:', error);
+          }
+
           const ratingEmbed = new EmbedBuilder()
             .setColor(0xffd700)
             .setTitle('📊 Ticket Ratings')
             .addFields(
               {
                 name: '🎫 Ticket ID',
-                value: ticket.id,
+                value: ticketLink,
                 inline: true
               },
               {
@@ -1136,17 +1253,17 @@ export class TicketManager {
               },
               {
                 name: '⭐ Service Rating',
-                value: `${ticket.serviceRating || 'N/A'}/5`,
+                value: ticket.serviceRating ? `${ticket.serviceRating}/5 ${'⭐'.repeat(ticket.serviceRating)}${'☆'.repeat(5 - ticket.serviceRating)}` : 'Not rated yet',
                 inline: true
               },
               {
                 name: '⭐ Staff Rating',
-                value: `${ticket.staffRating || 'N/A'}/5`,
+                value: ticket.staffRating ? `${ticket.staffRating}/5 ${'⭐'.repeat(ticket.staffRating)}${'☆'.repeat(5 - ticket.staffRating)}` : 'Not rated yet',
                 inline: true
               },
               {
                 name: '👨‍💼 Claimed By',
-                value: claimedBy ? `${claimedBy} (${claimedBy.user.tag})` : 'Nobody claimed this ticket',
+                value: claimedBy ? `${claimedBy} (${claimedBy.user.tag})` : 'Not claimed',
                 inline: true
               }
             )
@@ -1164,6 +1281,17 @@ export class TicketManager {
           const user = await guild.members.fetch(ticket.userId).catch(() => null);
           const staffMember = ticket.claimedBy ? await guild.members.fetch(ticket.claimedBy).catch(() => null) : null;
 
+          // Crear link clickeable al ticket
+          let ticketLink = ticket.id;
+          try {
+            const channel = await guild.channels.fetch(ticket.channelId).catch(() => null);
+            if (channel) {
+              ticketLink = `[${ticket.id}](https://discord.com/channels/${guild.id}/${ticket.channelId})`;
+            }
+          } catch (error) {
+            console.error('[TICKET] Error creating ticket link:', error);
+          }
+
           // Formato como foto 4 y 5
           const staffRatingEmbed = new EmbedBuilder()
             .setColor(0x5865F2)
@@ -1171,7 +1299,7 @@ export class TicketManager {
             .addFields(
               {
                 name: '👤 User Information',
-                value: `Creator: <@${ticket.userId}> ${user?.user.username || 'Unknown'}\nCategory: ${ticket.category || 'Support'}\nMessages: ${ticket.messageCount || 1}`,
+                value: `Creator: <@${ticket.userId}> ${user?.user.username || 'Unknown'}\nCategory: ${ticket.category || 'Support'}\nTicket: ${ticketLink}\nMessages: ${ticket.messageCount || 1}`,
                 inline: false
               },
               {
@@ -1187,17 +1315,45 @@ export class TicketManager {
             })
             .setTimestamp();
 
-          await staffRatingSupportChannel.send({ embeds: [staffRatingEmbed] });
+          // Taggear al staff member si existe
+          let content = '';
+          if (staffMember) {
+            content = `<@${staffMember.id}>`;
+          }
+
+          // Enviar con tag si hay staff member
+          if (content) {
+            await staffRatingSupportChannel.send({ content, embeds: [staffRatingEmbed] });
+          } else {
+            await staffRatingSupportChannel.send({ embeds: [staffRatingEmbed] });
+          }
         }
       }
 
-      // Enviar staff rating a Staff Feedbacks Channel (solo 4+ estrellas)
+      // Enviar staff rating a Staff Feedbacks Channel (solo 4+ estrellas) - SIEMPRE publicar cuando es 4 o 5 estrellas
       const staffFeedbacksChannelId = guildConfig?.staffFeedbacksChannelId;
-      if (staffFeedbacksChannelId && ticket.staffRating && ticket.staffRating >= 4) {
+      if (staffFeedbacksChannelId && ticket.staffRating && (ticket.staffRating >= 4 || ticket.staffRating === 5)) {
         const staffFeedbacksChannel = await guild.channels.fetch(staffFeedbacksChannelId).catch(() => null);
         if (staffFeedbacksChannel) {
           const user = await guild.members.fetch(ticket.userId).catch(() => null);
           const staffMember = ticket.claimedBy ? await guild.members.fetch(ticket.claimedBy).catch(() => null) : null;
+
+          // Taggear al staff member si existe
+          let content = '';
+          if (staffMember) {
+            content = `<@${staffMember.id}>`;
+          }
+
+          // Crear link clickeable al ticket
+          let ticketLink = ticket.id;
+          try {
+            const channel = await guild.channels.fetch(ticket.channelId).catch(() => null);
+            if (channel) {
+              ticketLink = `[${ticket.id}](https://discord.com/channels/${guild.id}/${ticket.channelId})`;
+            }
+          } catch (error) {
+            console.error('[TICKET] Error creating ticket link:', error);
+          }
 
           const feedbackEmbed = new EmbedBuilder()
             .setColor(0x00ff00)
@@ -1205,22 +1361,22 @@ export class TicketManager {
             .addFields(
               {
                 name: '👤 Evaluated by',
-                value: user ? `${user} (${user.user.tag})` : `User ID: ${ticket.userId}`,
+                value: user ? `<@${ticket.userId}> (${user.user.tag})` : `User ID: ${ticket.userId}`,
                 inline: true
               },
               {
                 name: '👨‍💼 Staff Member',
-                value: staffMember ? `${staffMember} (${staffMember.user.tag})` : 'Nobody claimed this ticket',
+                value: staffMember ? `<@${staffMember.id}> (${staffMember.user.tag})` : 'Not claimed',
                 inline: true
               },
               {
                 name: '💼 Category',
-                value: ticket.category,
+                value: ticket.category || 'Not specified',
                 inline: true
               },
               {
                 name: '⭐ Rating',
-                value: `${ticket.staffRating}/5 ${'⭐'.repeat(ticket.staffRating)}${'☆'.repeat(5 - ticket.staffRating)}`,
+                value: `${ticket.staffRating}/5 ${'⭐'.repeat(ticket.staffRating)}${'☆'.repeat(5 - ticket.staffRating)}${ticket.staffRatingComment ? `\n\n💬 Comment:\n${ticket.staffRatingComment}` : ''}`,
                 inline: false
               },
               {
@@ -1230,13 +1386,18 @@ export class TicketManager {
               },
               {
                 name: '🎫 Ticket ID',
-                value: ticket.id,
+                value: ticketLink,
                 inline: true
               }
             )
             .setTimestamp();
 
-          await staffFeedbacksChannel.send({ embeds: [feedbackEmbed] });
+          // Enviar con tag si hay staff member
+          if (content) {
+            await staffFeedbacksChannel.send({ content, embeds: [feedbackEmbed] });
+          } else {
+            await staffFeedbacksChannel.send({ embeds: [feedbackEmbed] });
+          }
         }
       }
     } catch (error) {
@@ -1621,23 +1782,39 @@ export class TicketManager {
       const color = action === 'OPEN' ? 0x00ff00 : 0xff0000;
       const title = action === 'OPEN' ? '✅ Ticket Abierto' : '❌ Ticket Cerrado';
 
+      // Obtener el canal del ticket para hacer el ID clickeable
+      let ticketLink = ticketId;
+      try {
+        const allTickets = this.getAllTickets();
+        const ticket = allTickets[ticketId] || Object.values(allTickets).find(t => t.id === ticketId);
+        if (ticket && ticket.channelId) {
+          const channel = await guild.channels.fetch(ticket.channelId).catch(() => null);
+          if (channel) {
+            // Crear link clickeable al ticket
+            ticketLink = `[${ticketId}](https://discord.com/channels/${guild.id}/${ticket.channelId})`;
+          }
+        }
+      } catch (error) {
+        console.error('[TICKET] Error creating ticket link:', error);
+      }
+
       const logEmbed = new EmbedBuilder()
         .setColor(color)
         .setTitle(title)
         .addFields(
           {
             name: '🎫 Ticket ID',
-            value: ticketId,
+            value: ticketLink,
             inline: true
           },
           {
             name: '💼 Category',
-            value: category,
+            value: category || 'Not specified',
             inline: true
           },
           {
             name: '👤 User',
-            value: user ? `${user}` : 'N/A',
+            value: user ? `${user}` : 'User not found',
             inline: true
           }
         )

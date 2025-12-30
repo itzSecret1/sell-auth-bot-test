@@ -2143,6 +2143,29 @@ export class Bot {
       
       console.log(`[TICKET] Found ticket: ${ticket.id} for channel ${ticket.channelId}`);
 
+      // Si el ticket no está claimeado y el usuario es owner/admin, detectar quién habló más del staff
+      if (!ticket.claimedBy && hasAdminRole) {
+        const mostActiveStaff = await TicketManager.detectMostActiveStaff(interaction.guild, ticket);
+        if (mostActiveStaff) {
+          console.log(`[TICKET] Auto-claiming ticket ${ticketId} to most active staff: ${mostActiveStaff.user.tag}`);
+          await interaction.deferUpdate();
+          const result = await TicketManager.claimTicket(interaction.guild, ticketId, mostActiveStaff);
+          
+          if (result.success) {
+            await interaction.followUp({
+              content: `✅ **Ticket auto-claimed**\n\nThis ticket has been automatically claimed to <@${mostActiveStaff.id}> (most active staff member in this ticket).`,
+              flags: MessageFlags.Ephemeral
+            });
+          } else {
+            await interaction.followUp({
+              content: result.message,
+              flags: MessageFlags.Ephemeral
+            });
+          }
+          return;
+        }
+      }
+
       await interaction.deferUpdate();
       const result = await TicketManager.claimTicket(interaction.guild, ticketId, interaction.member);
       
@@ -2335,8 +2358,25 @@ export class Bot {
       const ticketId = parts.slice(3).join('_');
       
       try {
-        await interaction.deferUpdate();
-        await TicketManager.processStaffRating(interaction.guild, ticketId, rating, interaction.user.id);
+        // Mostrar modal para comentario opcional
+        const { ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder } = await import('discord.js');
+        
+        const modal = new ModalBuilder()
+          .setCustomId(`staff_rating_modal_${rating}_${ticketId}`)
+          .setTitle(`Staff Rating - ${rating} Stars`);
+
+        const commentInput = new TextInputBuilder()
+          .setCustomId('staff_rating_comment')
+          .setLabel('Comment (optional)')
+          .setStyle(TextInputStyle.Paragraph)
+          .setPlaceholder('Share your thoughts about the staff member... (optional)')
+          .setRequired(false)
+          .setMaxLength(500);
+
+        const actionRow = new ActionRowBuilder().addComponents(commentInput);
+        modal.addComponents(actionRow);
+
+        await interaction.showModal(modal);
       } catch (error) {
         await interaction.reply({
           content: `❌ ${error.message}`,
@@ -2552,6 +2592,26 @@ export class Bot {
   }
 
   async handleTicketModal(interaction) {
+    // Modal para staff rating con comentario opcional
+    if (interaction.customId.startsWith('staff_rating_modal_')) {
+      const parts = interaction.customId.replace('staff_rating_modal_', '').split('_');
+      const rating = parseInt(parts[0]);
+      const ticketId = parts.slice(1).join('_');
+      const comment = interaction.fields.getTextInputValue('staff_rating_comment') || null;
+      
+      try {
+        await interaction.deferUpdate();
+        const { TicketManager } = await import('../utils/TicketManager.js');
+        await TicketManager.processStaffRating(interaction.guild, ticketId, rating, interaction.user.id, comment);
+      } catch (error) {
+        await interaction.reply({
+          content: `❌ ${error.message}`,
+          flags: MessageFlags.Ephemeral
+        }).catch(() => {});
+      }
+      return;
+    }
+
     // Modal para crear ticket de replaces con invoice
     if (interaction.customId === 'ticket_replaces_modal' || interaction.customId === 'ticket_replace_modal') {
       const invoiceId = interaction.fields.getTextInputValue('invoice_id');
@@ -3578,16 +3638,26 @@ export class Bot {
       
       if (!ticket) return;
       
-      // Detectar si el usuario dice thanks/perfecto/etc y auto-cerrar ticket
-      const gratitudePhrases = ['thanks', 'thank you', 'perfect', 'perfecto', 'gracias', 'ty', 'thx', 'all good', 'all set', 'done', 'finished', 'completed', 'resolved', 'solved', 'working now', 'works now', 'it works', 'everything is good', 'everything is fine'];
+      // Detectar si el usuario dice "it works thanks" o combinaciones similares para cerrar ticket
+      // Requiere frases más específicas para evitar cierres accidentales
+      const directClosePhrases = [
+        'it works thanks', 'itworks thanks', 'it works thank you', 'itworks thank you',
+        'it works ty', 'itworks ty', 'it works thx', 'itworks thx',
+        'works thanks', 'works thank you', 'works ty', 'works thx',
+        'zangs thanks', 'zangs thank you', 'zangs ty', 'zangs thx'
+      ];
+      const isDirectClose = directClosePhrases.some(phrase => contentLower.includes(phrase));
+      
+      // Frases de gratitud generales (inician proceso de cierre con reviews)
+      const gratitudePhrases = ['thanks', 'thank you', 'perfect', 'perfecto', 'gracias', 'ty', 'thx', 'all good', 'all set', 'done', 'finished', 'completed', 'resolved', 'solved'];
       const hasGratitude = gratitudePhrases.some(phrase => contentLower.includes(phrase));
       
-      if (hasGratitude && !ticket.closed && !ticket.pendingClose) {
+      if ((isDirectClose || hasGratitude) && !ticket.closed && !ticket.pendingClose) {
         // Verificar que no se haya enviado ya un mensaje de auto-cierre recientemente
         const recentMessages = await message.channel.messages.fetch({ limit: 5 });
         const alreadyClosing = recentMessages.some(msg => 
           msg.author.bot && 
-          (msg.content.includes('closing') || msg.content.includes('review'))
+          (msg.content.includes('closing') || msg.content.includes('review') || msg.content.includes('vouch'))
         );
         
         if (!alreadyClosing) {
@@ -3601,6 +3671,42 @@ export class Bot {
           
           // Solo auto-cerrar si es el creador del ticket o staff/admin
           if (ticket.userId === message.author.id || hasStaffRole || hasAdminRole) {
+            // Si es frase específica de cierre directo (it works thanks, etc.), cerrar directamente después de enviar mensaje de vouch
+            if (isDirectClose && ticket.userId === message.author.id) {
+              // Enviar mensaje de vouch en público (no privado)
+              const vouchesChannelId = guildConfig?.vouchesChannelId;
+              if (vouchesChannelId) {
+                const vouchesChannel = await message.guild.channels.fetch(vouchesChannelId).catch(() => null);
+                if (vouchesChannel) {
+                  const vouchMessage = new EmbedBuilder()
+                    .setColor(0x5865F2)
+                    .setTitle('💬 Leave a Vouch!')
+                    .setDescription(`Thank you for using our service! If you're satisfied, please consider leaving a vouch to help us grow.`)
+                    .addFields({
+                      name: '⭐ How to Leave a Vouch',
+                      value: `Use the \`/vouch\` command in ${vouchesChannel} to share your experience!\n\n**What to include:**\n• Your experience with the service\n• Rating (1-5 stars)\n• Optional proof screenshot`,
+                      inline: false
+                    })
+                    .setFooter({ text: 'Thank you for your support!' })
+                    .setTimestamp();
+                  
+                  await message.channel.send({ embeds: [vouchMessage] });
+                }
+              }
+              
+              // Cerrar ticket después de 2 segundos
+              setTimeout(async () => {
+                try {
+                  await TicketManager.closeTicket(message.guild, ticket.id, message.author.id);
+                } catch (error) {
+                  console.error('[AUTO-CLOSE] Error:', error);
+                }
+              }, 2000);
+              
+              return;
+            }
+            
+            // Para otros casos (perfecto, thanks, etc.), iniciar proceso de cierre con reviews
             await message.channel.send({
               content: '✅ **Thank you for your feedback!**\n\nThe ticket will be closed shortly. Please complete the review below to help us improve our service.'
             });

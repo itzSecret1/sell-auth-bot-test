@@ -154,7 +154,7 @@ export class SetupWizard {
       },
       {
         title: '⭐ Step 14: Staff Rating Support Channel',
-        description: '**What is it?**\nThis private channel receives ALL staff ratings (good and bad) from ticket evaluations.\n\n**What does it contain?**\n• All staff ratings from closed tickets\n• User who evaluated\n• Staff member evaluated\n• Category and date\n• Rating given\n\n**Is it mandatory?** No, but recommended to monitor all staff feedback.',
+        description: '**What is it?**\nThis PRIVATE channel receives ALL staff ratings (good and bad) from ticket evaluations. This is for internal monitoring and review.\n\n**What does it contain?**\n• ALL staff ratings from closed tickets (1-5 stars)\n• User who evaluated\n• Staff member evaluated (tagged for notifications)\n• Category and date\n• Rating given\n• Comments if provided\n\n**Is it mandatory?** No, but HIGHLY recommended to monitor all staff feedback internally.\n\n**Note:** This is different from Staff Feedbacks Channel (Step 15) which only shows positive ratings (4-5 stars) in a public channel.',
         fieldName: 'Staff Rating Support Channel',
         fieldValue: session.config.staffRatingSupportChannelId ? `<#${session.config.staffRatingSupportChannelId}>` : 'Not configured (Optional)',
         buttonId: 'setup_staff_rating_support_channel',
@@ -162,7 +162,7 @@ export class SetupWizard {
       },
       {
         title: '🌟 Step 15: Staff Feedbacks Channel',
-        description: '**What is it?**\nThis channel receives only POSITIVE staff ratings (4+ stars) from ticket evaluations.\n\n**What does it contain?**\n• Staff ratings of 4 or 5 stars only\n• User who evaluated\n• Staff member evaluated\n• Category and date\n• Rating given\n\n**Is it mandatory?** No, but useful to showcase positive feedback.',
+        description: '**What is it?**\nThis PUBLIC channel receives only POSITIVE staff ratings (4 or 5 stars) from ticket evaluations. This is for showcasing good feedback.\n\n**What does it contain?**\n• Staff ratings of 4 or 5 stars ONLY (positive feedback)\n• User who evaluated\n• Staff member evaluated (tagged for recognition)\n• Category and date\n• Rating given\n\n**Is it mandatory?** No, but useful to showcase positive feedback publicly.\n\n**Note:** This is different from Staff Rating Support Channel (Step 14) which receives ALL ratings (1-5 stars) in a private channel for monitoring.',
         fieldName: 'Staff Feedbacks Channel',
         fieldValue: session.config.staffFeedbacksChannelId ? `<#${session.config.staffFeedbacksChannelId}>` : 'Not configured (Optional)',
         buttonId: 'setup_staff_feedbacks_channel',

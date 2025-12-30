@@ -323,9 +323,23 @@ export default {
         }
       }
 
-      await AdvancedCommandLogger.logCommand(interaction, 'replace');
+      // SIEMPRE público (obligatorio) - owner puede elegir
+      const ownerId = process.env.BOT_USER_ID_WHITELIST?.split(',')[0];
+      const isOwner = userId === ownerId;
+      // Si es owner, puede elegir, pero por defecto es público
+      const finalIsPrivate = isOwner ? isPrivate : false;
+      
+      await AdvancedCommandLogger.logCommand(interaction, 'replace', {
+        isPublic: !finalIsPrivate,
+        isPrivate: finalIsPrivate,
+        isOwner: isOwner
+      });
+      
+      // Log en consola
+      console.log(`[REPLACE] User: ${interaction.user.tag} (${userId}) | Public: ${!finalIsPrivate} | Private: ${finalIsPrivate} | Owner: ${isOwner}`);
+      
       try {
-        await interaction.deferReply({ flags: isPrivate ? MessageFlags.Ephemeral : 0 });
+        await interaction.deferReply({ flags: finalIsPrivate ? MessageFlags.Ephemeral : 0 });
       } catch (deferError) {
         console.error(`[REPLACE] Defer error: ${deferError.message}`);
         return;
