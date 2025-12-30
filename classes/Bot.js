@@ -27,6 +27,8 @@ export class Bot {
   constructor(client, api) {
     this.client = client;
     this.api = api;
+    // Sesiones activas de aplicaciones de staff (userId -> session data)
+    this.activeStaffApplications = new Map();
 
     this.prefix = '/';
     this.commands = new Collection();
@@ -1645,10 +1647,13 @@ export class Bot {
 
   async handleStaffApplicationButton(interaction) {
     try {
-      const { readFileSync, existsSync } = await import('fs');
+      const { readFileSync, existsSync, writeFileSync } = await import('fs');
+      const { PermissionFlagsBits } = await import('discord.js');
+      const { GuildConfig } = await import('../utils/GuildConfig.js');
+      
       const appsData = existsSync('./staffApplications.json') 
         ? JSON.parse(readFileSync('./staffApplications.json', 'utf-8'))
-        : { isOpen: false };
+        : { isOpen: false, applications: {} };
 
       if (!appsData.isOpen) {
         await interaction.reply({
@@ -1658,9 +1663,9 @@ export class Bot {
         return;
       }
 
-      // Verificar si ya tiene una aplicación pendiente
+      // Verificar si ya tiene una aplicación pendiente o en progreso
       const existingApp = Object.values(appsData.applications || {}).find(
-        app => app.userId === interaction.user.id && app.status === 'pending'
+        app => app.userId === interaction.user.id && (app.status === 'pending' || app.status === 'in_progress')
       );
 
       if (existingApp) {
@@ -1671,62 +1676,272 @@ export class Bot {
         return;
       }
 
-      // Crear modal con preguntas
-      const { ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder } = await import('discord.js');
-      const modal = new ModalBuilder()
-        .setCustomId('staff_application_modal')
-        .setTitle('Staff Application');
+      // Verificar si ya tiene una sesión activa
+      if (this.activeStaffApplications.has(interaction.user.id)) {
+        await interaction.reply({
+          content: '❌ You already have an application in progress. Please complete it first.',
+          flags: MessageFlags.Ephemeral
+        });
+        return;
+      }
 
-      const ageInput = new TextInputBuilder()
-        .setCustomId('age')
-        .setLabel('What is your age?')
-        .setStyle(TextInputStyle.Short)
-        .setRequired(true)
-        .setMaxLength(3);
+      await interaction.reply({
+        content: '✅ Creating your application channel...',
+        flags: MessageFlags.Ephemeral
+      });
 
-      const experienceInput = new TextInputBuilder()
-        .setCustomId('experience')
-        .setLabel('Tell us about your staff member experience.')
-        .setStyle(TextInputStyle.Paragraph)
-        .setRequired(true)
-        .setMaxLength(1000);
+      // Crear canal de aplicación
+      const guildConfig = GuildConfig.getConfig(interaction.guild.id);
+      const reviewCategoryId = guildConfig?.applicationReviewCategoryId;
+      
+      let applicationCategory = null;
+      if (reviewCategoryId) {
+        applicationCategory = await interaction.guild.channels.fetch(reviewCategoryId).catch(() => null);
+      }
 
-      const contributionInput = new TextInputBuilder()
-        .setCustomId('contribution')
-        .setLabel('What can you contribute to the team?')
-        .setStyle(TextInputStyle.Paragraph)
-        .setRequired(true)
-        .setMaxLength(1000);
+      if (!applicationCategory || applicationCategory.type !== 4) {
+        // Crear categoría automáticamente
+        applicationCategory = interaction.guild.channels.cache.find(ch => 
+          ch.type === 4 && ch.name.toLowerCase() === 'staff applications'
+        ) || await interaction.guild.channels.create({
+          name: 'Staff Applications',
+          type: 4
+        });
+      }
 
-      const processInput = new TextInputBuilder()
-        .setCustomId('process')
-        .setLabel('Describe the process of attending a ticket?')
-        .setStyle(TextInputStyle.Paragraph)
-        .setRequired(true)
-        .setMaxLength(1000);
+      const applicationChannel = await applicationCategory.children.create({
+        name: `apply-${interaction.user.username.toLowerCase()}`,
+        type: 0,
+        permissionOverwrites: [
+          {
+            id: interaction.guild.id,
+            deny: [PermissionFlagsBits.ViewChannel]
+          },
+          {
+            id: interaction.user.id,
+            allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.SendMessages]
+          }
+        ],
+        topic: `staff-apply=1;applicant=${interaction.user.id}`
+      });
 
-      const availabilityInput = new TextInputBuilder()
-        .setCustomId('availability')
-        .setLabel('Hours, Languages, Timezone.')
-        .setStyle(TextInputStyle.Paragraph)
-        .setRequired(true)
-        .setMaxLength(500);
+      // Crear sesión de aplicación
+      const sessionId = `APP-${Date.now()}`;
+      const session = {
+        sessionId,
+        userId: interaction.user.id,
+        username: interaction.user.username,
+        channelId: applicationChannel.id,
+        guildId: interaction.guild.id,
+        currentQuestion: 0,
+        answers: {},
+        startedAt: new Date().toISOString()
+      };
 
-      modal.addComponents(
-        new ActionRowBuilder().addComponents(ageInput),
-        new ActionRowBuilder().addComponents(experienceInput),
-        new ActionRowBuilder().addComponents(contributionInput),
-        new ActionRowBuilder().addComponents(processInput),
-        new ActionRowBuilder().addComponents(availabilityInput)
+      this.activeStaffApplications.set(interaction.user.id, session);
+
+      // Enviar mensaje de bienvenida
+      const welcomeEmbed = new EmbedBuilder()
+        .setColor(0x9B59B6)
+        .setTitle('Staff Application')
+        .setDescription(`<@${interaction.user.id}>\n\nI will ask you a short series of questions here. Answer each one and I will move to the next automatically.\n\nYou can type cancel anytime to stop.`)
+        .setFooter({ text: `hoy a las ${new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}` })
+        .setTimestamp();
+
+      await applicationChannel.send({ embeds: [welcomeEmbed] });
+
+      // Empezar con la primera pregunta
+      await this.askNextStaffQuestion(applicationChannel, session);
+
+    } catch (error) {
+      console.error('[STAFF-APP] Error starting application:', error);
+      await interaction.editReply({
+        content: `❌ Error: ${error.message}`
+      }).catch(() => {});
+    }
+  }
+
+  // Preguntas del formulario (12 preguntas como en las imágenes)
+  getStaffApplicationQuestions() {
+    return [
+      'How old are you?',
+      'Can you generate accounts? Which types?',
+      'Rate your maturity 1-10 and explain why',
+      'Have you been staff in store servers? Which?',
+      'No senior staff available — what do you do?',
+      'Why join staff? What can you contribute?',
+      'How active are you daily? Hours you can help?',
+      'What is your time zone?',
+      'Would you allow screen-share via AnyDesk?',
+      'Do you have a PC?',
+      'Do you have a decent microphone?',
+      'Which languages do you speak? List all languages you can use.'
+    ];
+  }
+
+  async askNextStaffQuestion(channel, session) {
+    const questions = this.getStaffApplicationQuestions();
+    
+    if (session.currentQuestion >= questions.length) {
+      // Todas las preguntas respondidas, procesar aplicación
+      await this.processStaffApplication(session);
+      return;
+    }
+
+    const questionNumber = session.currentQuestion + 1;
+    const totalQuestions = questions.length;
+    const question = questions[session.currentQuestion];
+
+    const questionEmbed = new EmbedBuilder()
+      .setColor(0x9B59B6)
+      .setDescription(`**(${questionNumber}/${totalQuestions}) ${question}**\n\nReply with your answer. Type cancel to stop.`)
+      .setTimestamp();
+
+    await channel.send({ embeds: [questionEmbed] });
+  }
+
+  async handleStaffApplicationMessage(message) {
+    // Verificar si el usuario tiene una sesión activa
+    const session = this.activeStaffApplications.get(message.author.id);
+    if (!session) return;
+
+    // Verificar que el mensaje sea en el canal correcto
+    if (message.channel.id !== session.channelId) return;
+
+    const content = message.content.trim().toLowerCase();
+
+    // Verificar si el usuario quiere cancelar
+    if (content === 'cancel') {
+      await message.channel.send('❌ Application cancelled.');
+      this.activeStaffApplications.delete(message.author.id);
+      return;
+    }
+
+    // Guardar respuesta
+    const questions = this.getStaffApplicationQuestions();
+    const questionKey = questions[session.currentQuestion].toLowerCase().replace(/[^a-z0-9]/g, '_').substring(0, 30);
+    session.answers[questionKey] = message.content.trim();
+
+    // Pasar a la siguiente pregunta
+    session.currentQuestion++;
+
+    // Esperar un momento antes de hacer la siguiente pregunta
+    setTimeout(async () => {
+      await this.askNextStaffQuestion(message.channel, session);
+    }, 500);
+  }
+
+  async processStaffApplication(session) {
+    try {
+      const { readFileSync, writeFileSync, existsSync } = await import('fs');
+      const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, PermissionFlagsBits } = await import('discord.js');
+      const { GuildConfig } = await import('../utils/GuildConfig.js');
+
+      const channel = await this.client.channels.fetch(session.channelId);
+      const user = await this.client.users.fetch(session.userId);
+      const guild = await this.client.guilds.fetch(session.guildId);
+
+      // Enviar mensaje de procesamiento
+      await channel.send('Thanks! Processing your application...');
+
+      // Crear aplicación
+      const appId = session.sessionId;
+      const appsData = existsSync('./staffApplications.json')
+        ? JSON.parse(readFileSync('./staffApplications.json', 'utf-8'))
+        : { applications: {}, isOpen: false };
+
+      const questions = this.getStaffApplicationQuestions();
+      const application = {
+        id: appId,
+        userId: session.userId,
+        username: session.username,
+        tag: user.tag,
+        status: 'pending',
+        submittedAt: new Date().toISOString(),
+        guildId: session.guildId,
+        channelId: session.channelId,
+        answers: session.answers,
+        questions: questions
+      };
+
+      if (!appsData.applications) appsData.applications = {};
+      appsData.applications[appId] = application;
+      writeFileSync('./staffApplications.json', JSON.stringify(appsData, null, 2), 'utf-8');
+
+      // Crear embed de resumen exacto como en las imágenes
+      const summaryEmbed = new EmbedBuilder()
+        .setColor(0x9B59B6)
+        .setTitle(`Thanks for applying!`)
+        .setDescription(`Your answers have been recorded. Our reviewers will evaluate your application soon.`)
+        .setFooter({ 
+          text: `hoy a las ${new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}` 
+        })
+        .setTimestamp();
+
+      // Agregar preguntas y respuestas
+      questions.forEach((question, index) => {
+        const questionKey = question.toLowerCase().replace(/[^a-z0-9]/g, '_').substring(0, 30);
+        const answer = session.answers[questionKey] || 'No answer provided';
+        summaryEmbed.addFields({
+          name: question,
+          value: answer,
+          inline: false
+        });
+      });
+
+      await channel.send({ 
+        content: `<@${session.userId}>`,
+        embeds: [summaryEmbed] 
+      });
+
+      // Configurar permisos para staff
+      const guildConfig = GuildConfig.getConfig(session.guildId);
+      const adminRoleId = guildConfig?.adminRoleId;
+      const staffRoleId = guildConfig?.staffRoleId;
+
+      if (adminRoleId) {
+        await channel.permissionOverwrites.edit(adminRoleId, {
+          ViewChannel: true,
+          ReadMessageHistory: true,
+          SendMessages: true
+        });
+      }
+
+      if (staffRoleId) {
+        await channel.permissionOverwrites.edit(staffRoleId, {
+          ViewChannel: true,
+          ReadMessageHistory: true,
+          SendMessages: true
+        });
+      }
+
+      // Enviar embed con botones Accept/Deny para staff
+      const reviewEmbed = EmbedBuilder.from(summaryEmbed)
+        .setTitle('Staff Application Summary')
+        .setDescription(`**Applicant:** ${user.tag} (<@${session.userId}>)`);
+
+      const reviewButtons = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`staff_app_accept_${appId}`)
+          .setLabel('Accept')
+          .setStyle(ButtonStyle.Success),
+        new ButtonBuilder()
+          .setCustomId(`staff_app_deny_${appId}`)
+          .setLabel('Deny')
+          .setStyle(ButtonStyle.Danger)
       );
 
-      await interaction.showModal(modal);
+      await channel.send({
+        embeds: [reviewEmbed],
+        components: [reviewButtons]
+      });
+
+      // Limpiar sesión
+      this.activeStaffApplications.delete(session.userId);
+
     } catch (error) {
-      console.error('[STAFF-APP] Error showing modal:', error);
-      await interaction.reply({
-        content: '❌ Error opening application form.',
-        flags: MessageFlags.Ephemeral
-      }).catch(() => {});
+      console.error('[STAFF-APP] Error processing application:', error);
+      this.activeStaffApplications.delete(session.userId);
     }
   }
 
@@ -3545,6 +3760,12 @@ export class Bot {
     this.client.on('messageCreate', async (message) => {
       // Ignorar mensajes del bot
       if (message.author.bot) return;
+
+      // Manejar mensajes de aplicaciones de staff
+      if (this.activeStaffApplications.has(message.author.id)) {
+        await this.handleStaffApplicationMessage(message);
+        return;
+      }
       
       const content = message.content.trim();
       const contentLower = content.toLowerCase();
