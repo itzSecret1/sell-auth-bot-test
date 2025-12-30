@@ -455,17 +455,17 @@ export default {
       }
 
       // VERIFICAR SI NECESITA CONFIRMACIÓN (quantity > 5)
-      // Verificar si el usuario es owner (no necesita confirmación)
+      // Verificar si el usuario es admin/owner (no necesita confirmación)
       const guildConfig = GuildConfig.getConfig(interaction.guild.id);
       const adminRoleId = guildConfig?.adminRoleId || config.BOT_ADMIN_ROLE_ID;
-      const isOwner = adminRoleId && interaction.member.roles.cache.has(adminRoleId);
+      const hasAdminRole = adminRoleId && interaction.member.roles.cache.has(adminRoleId);
       const acceptChannelId = guildConfig?.acceptChannelId;
       
       // Security check: Require confirmation for large quantities (even for staff)
       // Threshold: 10 items for staff, 50 for owners (or if no accept channel configured, use 5)
       const staffThreshold = acceptChannelId ? 10 : 5;
       const ownerThreshold = acceptChannelId ? 50 : 5;
-      const threshold = isOwner ? ownerThreshold : staffThreshold;
+      const threshold = hasAdminRole ? ownerThreshold : staffThreshold;
       
       if (quantity >= threshold) {
         // Create pending order
@@ -541,7 +541,7 @@ export default {
               );
 
               await acceptChannel.send({
-                content: isOwner ? '' : `@here **Large replace order requires confirmation**`,
+                content: hasAdminRole ? '' : `@here **Large replace order requires confirmation**`,
                 embeds: [confirmEmbed],
                 components: [confirmButtons]
               });
