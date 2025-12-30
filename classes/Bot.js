@@ -1559,7 +1559,8 @@ export class Bot {
     const categoryMap = {
       'product_not_received': 'product_not_received',
       'replace': 'replace',
-      'support': 'support'
+      'support': 'support',
+      'staff_apply': 'staff_apply'
     };
     
     const category = categoryMap[selectedValue];
@@ -1569,6 +1570,12 @@ export class Bot {
         content: '❌ Invalid ticket category selected',
         flags: MessageFlags.Ephemeral
       });
+      return;
+    }
+    
+    // Si es "staff_apply", manejar aplicación de staff
+    if (category === 'staff_apply') {
+      await this.handleStaffApplicationButton(interaction);
       return;
     }
     
