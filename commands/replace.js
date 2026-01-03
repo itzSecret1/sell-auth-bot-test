@@ -47,6 +47,7 @@ export default {
     ),
 
   onlyWhitelisted: true,
+  requiredRole: 'staff', // Trial staff can use this
   requiredRole: 'staff',
 
   async autocomplete(interaction, api) {

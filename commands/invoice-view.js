@@ -14,6 +14,7 @@ export default {
     ),
 
   onlyWhitelisted: true,
+  requiredRole: 'staff', // Trial staff can use this
   requiredRole: 'staff',
 
   async execute(interaction, api) {

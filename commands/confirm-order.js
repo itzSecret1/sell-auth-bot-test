@@ -40,6 +40,7 @@ export default {
     ),
 
   onlyWhitelisted: true,
+  requiredRole: 'staff', // Trial staff can use this
   // No requiere requiredRole porque verificamos manualmente con GuildConfig
 
   async autocomplete(interaction, api) {
