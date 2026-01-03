@@ -48,7 +48,6 @@ export default {
 
   onlyWhitelisted: true,
   requiredRole: 'staff', // Trial staff can use this
-  requiredRole: 'staff',
 
   async autocomplete(interaction, api) {
     try {
@@ -136,10 +135,12 @@ export default {
     const quantity = interaction.options.getInteger('quantity');
     const variantInput = interaction.options.getString('variant');
     const userId = interaction.user.id;
-    const ownerId = process.env.BOT_USER_ID_WHITELIST?.split(',')[0]; // Owner is first in whitelist
     
     // SIEMPRE público (obligatorio)
     const isPrivate = false;
+
+    // Get owner ID for rate limit checks
+    const ownerId = process.env.BOT_USER_ID_WHITELIST?.split(',')[0]; // Owner is first in whitelist
 
     try {
       // RATE LIMIT CHECK (unless user is owner)
@@ -325,7 +326,6 @@ export default {
       }
 
       // SIEMPRE público (obligatorio) - owner puede elegir
-      const ownerId = process.env.BOT_USER_ID_WHITELIST?.split(',')[0];
       const isOwner = userId === ownerId;
       // Si es owner, puede elegir, pero por defecto es público
       const finalIsPrivate = isOwner ? isPrivate : false;
