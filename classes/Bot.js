@@ -3779,6 +3779,11 @@ export class Bot {
       const content = message.content.trim();
       const contentLower = content.toLowerCase();
       
+      // Sistema mejorado de tracking de estado del ticket (evitar spam)
+      if (!this.ticketMessageState) {
+        this.ticketMessageState = new Map();
+      }
+      
       // Comandos de texto para métodos de pago (funcionan en cualquier canal)
       // .paymentmethod 5, .pm 5, .paymentmethod 10, etc.
       if (contentLower.startsWith('.paymentmethod ') || contentLower.startsWith('.pm ')) {
@@ -3976,42 +3981,97 @@ export class Bot {
         const content = message.content.toLowerCase();
         const hasImages = message.attachments.size > 0;
         
-        // Sistema de auto-respuesta para tickets
+        // Obtener o inicializar estado del ticket
+        const ticketStateKey = `${message.guild.id}-${ticket.id}`;
+        if (!this.ticketMessageState.has(ticketStateKey)) {
+          this.ticketMessageState.set(ticketStateKey, {
+            lastBotMessageType: null,
+            lastBotMessageTime: 0,
+            hasReceivedProof: false,
+            hasReceivedInvoice: !!ticket.invoiceId,
+            hasReceivedAccountInfo: false,
+            userMessageCount: 0,
+            claimedByStaff: !!ticket.claimedBy
+          });
+        }
+        
+        const ticketState = this.ticketMessageState.get(ticketStateKey);
+        ticketState.userMessageCount++;
+        
+        // Actualizar estado si el ticket fue reclamado
+        if (ticket.claimedBy && !ticketState.claimedByStaff) {
+          ticketState.claimedByStaff = true;
+          console.log(`[TICKET-STATE] Ticket ${ticket.id} ha sido reclamado por staff - reduciendo respuestas automáticas`);
+        }
+        
+        // Si el ticket fue reclamado por staff, solo responder a casos críticos
+        if (ticketState.claimedByStaff) {
+          // Limitar respuestas automáticas drásticamente cuando hay staff
+          const timeSinceLastBot = Date.now() - ticketState.lastBotMessageTime;
+          if (timeSinceLastBot < 300000) { // 5 minutos
+            console.log(`[TICKET-STATE] Ticket ${ticket.id} tiene staff - evitando spam (última respuesta hace ${Math.floor(timeSinceLastBot/1000)}s)`);
+            return;
+          }
+        }
+        
+        // Función helper para verificar si ya respondimos recientemente con el mismo tipo
+        const shouldRespondAgain = (messageType, cooldownMs = 60000) => {
+          if (ticketState.lastBotMessageType === messageType) {
+            const timeSince = Date.now() - ticketState.lastBotMessageTime;
+            if (timeSince < cooldownMs) {
+              console.log(`[TICKET-STATE] Evitando duplicar mensaje tipo "${messageType}" (hace ${Math.floor(timeSince/1000)}s)`);
+              return false;
+            }
+          }
+          return true;
+        };
+        
+        // Función helper para registrar que enviamos un mensaje
+        const recordBotMessage = (messageType) => {
+          ticketState.lastBotMessageType = messageType;
+          ticketState.lastBotMessageTime = Date.now();
+        };
+        
+        // Detectar si hay prueba (imágenes)
+        if (hasImages) {
+          ticketState.hasReceivedProof = true;
+          console.log(`[TICKET-STATE] Ticket ${ticket.id} - Prueba recibida`);
+        }
+        
+        // Sistema de auto-respuesta para tickets (con cooldown mejorado)
+        // Sistema de auto-respuesta para tickets (con cooldown mejorado)
         const autoResponses = [
           {
             triggers: ['warranty', 'warrant', 'guarantee', 'guaranty'],
-            response: '📋 **Warranty Check Required**\n\n1. First, check the warranty on the website\n2. Send your invoice number\n3. Send proof (screenshot/image)\n\nOnce you provide these, the staff will process your replacement.'
+            response: '📋 **Warranty Check Required**\n\n1. First, check the warranty on the website\n2. Send your invoice number\n3. Send proof (screenshot/image)\n\nOnce you provide these, the staff will process your replacement.',
+            type: 'warranty'
           },
           {
             triggers: ['password', 'incorrect', 'wrong password', 'can\'t access', 'cannot access', 'can\'t login', 'cannot login'],
-            response: '🔐 **Account Access Issue**\n\nPlease provide:\n1. Screenshot/proof of the issue\n\nOur team will review your proof and process your replacement request shortly.'
+            response: '🔐 **Account Access Issue**\n\nPlease provide:\n1. Screenshot/proof of the issue\n\nOur team will review your proof and process your replacement request shortly.',
+            type: 'access_issue'
           },
           {
             triggers: ['invoice', 'invoice number', 'invoice id'],
-            response: '📄 **Invoice Information**\n\nPlease send:\n1. Your invoice number (alphanumeric code)\n2. Proof/screenshot of the issue\n\nThis will help the staff process your request faster.'
+            response: '📄 **Invoice Information**\n\nPlease send:\n1. Your invoice number (alphanumeric code)\n2. Proof/screenshot of the issue\n\nThis will help the staff process your request faster.',
+            type: 'invoice_info'
           },
           {
             triggers: ['payment', 'payment method', 'pay', 'how to pay', 'payment methods', 'btc', 'ltc', 'pp', 'paypal', 'bitcoin', 'litecoin', 'crypto'],
-            response: '💳 **Payment Methods**\n\nWe accept the following payment methods:\n• **BTC** (Bitcoin)\n• **LTC** (Litecoin)\n• **PP** (PayPal)\n\n**Note:** Payment methods may vary. Please check our website or announcements for the most up-to-date information on available payment options.\n\nFor payment-related issues, please contact our support team.'
+            response: '💳 **Payment Methods**\n\nWe accept the following payment methods:\n• **BTC** (Bitcoin)\n• **LTC** (Litecoin)\n• **PP** (PayPal)\n\n**Note:** Payment methods may vary. Please check our website or announcements for the most up-to-date information on available payment options.\n\nFor payment-related issues, please contact our support team.',
+            type: 'payment'
           }
         ];
 
         // Verificar si hay una respuesta automática para este mensaje
         for (const autoResponse of autoResponses) {
           const hasTrigger = autoResponse.triggers.some(trigger => content.includes(trigger));
-          if (hasTrigger) {
-            const lastMessages = await message.channel.messages.fetch({ limit: 10 });
-            const alreadyResponded = lastMessages.some(msg => 
-              msg.author.bot && 
-              msg.content.includes(autoResponse.response.substring(0, 30))
-            );
-            
-            if (!alreadyResponded) {
-              await message.channel.send({
-                content: autoResponse.response
-              });
-              break;
-            }
+          if (hasTrigger && shouldRespondAgain(autoResponse.type, 120000)) { // 2 minutos de cooldown
+            await message.channel.send({
+              content: autoResponse.response
+            });
+            recordBotMessage(autoResponse.type);
+            break;
           }
         }
 
@@ -4035,21 +4095,12 @@ export class Bot {
         
         const hasAccountIssue = accountIssues.some(phrase => content.includes(phrase));
         
-        // Si detecta problema de cuenta, preguntar qué cuenta específicamente
-        if (hasAccountIssue) {
-          // Verificar si ya preguntamos antes (evitar spam)
-          const lastMessages = await message.channel.messages.fetch({ limit: 5 });
-          const alreadyAsked = lastMessages.some(msg => 
-            msg.author.bot && 
-            (msg.content.includes('What account') || 
-             msg.content.includes('Please specify'))
-          );
-          
-          if (!alreadyAsked) {
-            await message.channel.send({
-              content: `❓ **What account?**\n\nPlease specify which account is not working.`
-            });
-          }
+        // Si detecta problema de cuenta, preguntar qué cuenta específicamente (pero con cooldown)
+        if (hasAccountIssue && shouldRespondAgain('account_issue', 90000)) { // 1.5 minutos
+          await message.channel.send({
+            content: `❓ **What account?**\n\nPlease specify which account is not working.`
+          });
+          recordBotMessage('account_issue');
           return;
         }
         
@@ -4101,7 +4152,14 @@ export class Bot {
               
               let staffMention = '';
               if (staffRoleId) {
-                staffMention = `<@&${staffRoleId}> `;
+                // Verificar que el rol existe
+                const staffRole = await message.guild.roles.fetch(staffRoleId).catch(() => null);
+                if (staffRole) {
+                  staffMention = `<@&${staffRoleId}> `;
+                } else {
+                  console.warn(`[TICKET] ⚠️ Staff role ${staffRoleId} not found in guild ${message.guild.id}`);
+                  staffMention = '**@Trial Staff** '; // Fallback si el rol no existe
+                }
               }
               
               await message.channel.send({
@@ -4110,36 +4168,22 @@ export class Bot {
               return;
             }
             
-            // Si hay fotos válidas pero no se detectó servicio, preguntar tipo de cuenta
-            if (hasValidAccounts && !serviceInfo.service) {
-              const lastMessages = await message.channel.messages.fetch({ limit: 5 });
-              const alreadyAsked = lastMessages.some(msg => 
-                msg.author.bot && 
-                (msg.content.includes('What type of account') || 
-                 msg.content.includes('How many accounts'))
-              );
-              
-              if (!alreadyAsked) {
-                await message.channel.send({
-                  content: `❓ **Account Information Required**\n\n**How many accounts?** (Detected: ${accountCount > 0 ? accountCount : 'unknown'})\n**What type of account?** (e.g., Netflix, Hulu, Disney+, etc.)\n\nPlease provide this information to proceed with the replacement.`
-                });
-              }
+            // Si hay fotos válidas pero no se detectó servicio, preguntar tipo de cuenta (con cooldown)
+            if (hasValidAccounts && !serviceInfo.service && shouldRespondAgain('account_info', 90000)) {
+              ticketState.hasReceivedAccountInfo = false;
+              await message.channel.send({
+                content: `❓ **Account Information Required**\n\n**How many accounts?** (Detected: ${accountCount > 0 ? accountCount : 'unknown'})\n**What type of account?** (e.g., Netflix, Hulu, Disney+, etc.)\n\nPlease provide this information to proceed with the replacement.`
+              });
+              recordBotMessage('account_info');
               return;
             }
             
-            // Si hay servicio pero no cantidad, preguntar cantidad
-            if (serviceInfo.service && !serviceInfo.quantity) {
-              const lastMessages = await message.channel.messages.fetch({ limit: 5 });
-              const alreadyAsked = lastMessages.some(msg => 
-                msg.author.bot && 
-                msg.content.includes('How many accounts')
-              );
-              
-              if (!alreadyAsked) {
-                await message.channel.send({
-                  content: `❓ **How many accounts?**\n\nDetected service: **${serviceInfo.service}**\nDetected in photos: ${accountCount > 0 ? accountCount : 'unknown'}\n\nPlease specify the number of accounts that need to be replaced.`
-                });
-              }
+            // Si hay servicio pero no cantidad, preguntar cantidad (con cooldown)
+            if (serviceInfo.service && !serviceInfo.quantity && shouldRespondAgain('quantity_ask', 90000)) {
+              await message.channel.send({
+                content: `❓ **How many accounts?**\n\nDetected service: **${serviceInfo.service}**\nDetected in photos: ${accountCount > 0 ? accountCount : 'unknown'}\n\nPlease specify the number of accounts that need to be replaced.`
+              });
+              recordBotMessage('quantity_ask');
               return;
             }
             
@@ -4215,7 +4259,18 @@ export class Bot {
               
               const guildConfig = GuildConfig.getConfig(message.guild.id);
               const staffRoleId = guildConfig?.staffRoleId;
-              const staffMention = staffRoleId ? `<@&${staffRoleId}> ` : '';
+              
+              let staffMention = '';
+              if (staffRoleId) {
+                // Verificar que el rol existe
+                const staffRole = await message.guild.roles.fetch(staffRoleId).catch(() => null);
+                if (staffRole) {
+                  staffMention = `<@&${staffRoleId}> `;
+                } else {
+                  console.warn(`[TICKET] ⚠️ Staff role ${staffRoleId} not found in guild ${message.guild.id}`);
+                  staffMention = '**@Trial Staff** '; // Fallback si el rol no existe
+                }
+              }
               
               await message.channel.send({
                 content: `${staffMention}✅ **Proof Received**\n\n**Invoice:** \`${invoiceMatch}\`\n**Service:** ${serviceName}\n**Quantity:** ${quantity}\n**Proof:** ${message.attachments.size} screenshot(s) attached\n\nPlease review and process the replacement manually using \`/replace\`.`
@@ -4232,7 +4287,14 @@ export class Bot {
             
             let staffMention = '';
             if (staffRoleId) {
-              staffMention = `<@&${staffRoleId}> `;
+              // Verificar que el rol existe
+              const staffRole = await message.guild.roles.fetch(staffRoleId).catch(() => null);
+              if (staffRole) {
+                staffMention = `<@&${staffRoleId}> `;
+              } else {
+                console.warn(`[TICKET] ⚠️ Staff role ${staffRoleId} not found in guild ${message.guild.id}`);
+                staffMention = '**@Trial Staff** '; // Fallback si el rol no existe
+              }
             }
             
             await message.channel.send({
@@ -4259,50 +4321,32 @@ export class Bot {
           }
         }
         
-        // Si hay fotos pero no se detecta invoice, pedir invoice
-        if (hasImages && !invoiceMatch) {
-          const lastMessages = await message.channel.messages.fetch({ limit: 5 });
-          const alreadyAsked = lastMessages.some(msg => 
-            msg.author.bot && 
-            msg.content.includes('Invoice Required')
-          );
-          
-          if (!alreadyAsked) {
-            await message.channel.send({
-              content: `📋 **Invoice Required**\n\nPlease provide your invoice number along with the screenshot.`
-            });
-          }
+        // Si hay fotos pero no se detecta invoice, pedir invoice (con cooldown)
+        if (hasImages && !invoiceMatch && !ticketState.hasReceivedInvoice && shouldRespondAgain('invoice_required', 120000)) {
+          await message.channel.send({
+            content: `📋 **Invoice Required**\n\nPlease provide your invoice number along with the screenshot.`
+          });
+          recordBotMessage('invoice_required');
           return;
         }
         
-        // Si detecta invoice pero sin fotos, pedir fotos (solo si no hay invoice en el ticket)
-        if (invoiceMatch && !hasImages && !ticketInvoiceId) {
-          const lastMessages = await message.channel.messages.fetch({ limit: 5 });
-          const alreadyAsked = lastMessages.some(msg => 
-            msg.author.bot && 
-            msg.content.includes('Proof Required')
-          );
-          
-          if (!alreadyAsked) {
-            await message.channel.send({
-              content: `📸 **Proof Required**\n\nInvoice detected: \`${invoiceMatch}\`\n\nPlease upload screenshot(s) as proof of the issue.`
-            });
-          }
+        // Si detecta invoice pero sin fotos, pedir fotos (solo si no hay invoice en el ticket y no se ha recibido prueba)
+        if (invoiceMatch && !hasImages && !ticketInvoiceId && !ticketState.hasReceivedProof && shouldRespondAgain('proof_no_invoice', 120000)) {
+          await message.channel.send({
+            content: `📸 **Proof Required**\n\nInvoice detected: \`${invoiceMatch}\`\n\nPlease upload screenshot(s) as proof of the issue.`
+          });
+          recordBotMessage('proof_no_invoice');
           return;
         }
         
-        // Si hay invoice en el ticket pero no fotos, solo pedir fotos
-        if (ticketInvoiceId && !hasImages) {
-          const lastMessages = await message.channel.messages.fetch({ limit: 5 });
-          const alreadyAsked = lastMessages.some(msg => 
-            msg.author.bot && 
-            msg.content.includes('Proof Required')
-          );
-          
-          if (!alreadyAsked) {
+        // Si hay invoice en el ticket pero no fotos, solo pedir fotos UNA VEZ (con cooldown muy largo)
+        if (ticketInvoiceId && !hasImages && !ticketState.hasReceivedProof && shouldRespondAgain('proof_with_invoice', 180000)) {
+          // Solo pedir si el usuario ha escrito al menos 2 mensajes y ninguno tiene imagen
+          if (ticketState.userMessageCount >= 2) {
             await message.channel.send({
               content: `📸 **Proof Required**\n\nPlease upload screenshot(s) as proof of the issue.\n\n**Invoice ID:** \`${ticketInvoiceId}\``
             });
+            recordBotMessage('proof_with_invoice');
           }
           return;
         }

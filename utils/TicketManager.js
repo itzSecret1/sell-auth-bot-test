@@ -1151,29 +1151,46 @@ export class TicketManager {
         // Obtener el usuario que cerró el ticket
         const closedByUserId = ticket.closedBy || ticket.claimedBy || 'Sistema';
 
-        // Enviar mensaje de vouch en público (no privado) después del replay
+        // SIEMPRE enviar mensaje de vouch en canal público SI las reviews son positivas (4-5 estrellas)
         const { GuildConfig } = await import('./GuildConfig.js');
         const guildConfig = GuildConfig.getConfig(guild.id);
         const vouchesChannelId = guildConfig?.vouchesChannelId;
         
-        if (vouchesChannelId) {
+        // Calcular rating promedio
+        const avgRating = (ticket.serviceRating + ticket.staffRating) / 2;
+        const isPositiveReview = avgRating >= 4; // 4 o 5 estrellas = positivo
+        
+        if (vouchesChannelId && isPositiveReview) {
           const vouchesChannel = await guild.channels.fetch(vouchesChannelId).catch(() => null);
           if (vouchesChannel) {
-            const vouchMessage = new EmbedBuilder()
-              .setColor(0x5865F2)
-              .setTitle('💬 Leave a Vouch!')
-              .setDescription(`Thank you for using our service! If you're satisfied, please consider leaving a vouch to help us grow.`)
-              .addFields({
-                name: '⭐ How to Leave a Vouch',
-                value: `Use the \`/vouch\` command in ${vouchesChannel} to share your experience!\n\n**What to include:**\n• Your experience with the service\n• Rating (1-5 stars)\n• Optional proof screenshot`,
-                inline: false
-              })
-              .setFooter({ text: 'Thank you for your support!' })
-              .setTimestamp();
-            
-            // Enviar en público (no privado)
-            await channel.send({ embeds: [vouchMessage] });
+            try {
+              const user = await guild.members.fetch(ticket.userId).catch(() => null);
+              
+              const vouchMessage = new EmbedBuilder()
+                .setColor(avgRating === 5 ? 0x00ff00 : 0x5865F2) // Verde para 5 estrellas, azul para 4+
+                .setTitle('💬 Positive Review - Leave a Vouch!')
+                .setDescription(`**${user ? user.user.tag : 'User'}** left a positive review!\n\n⭐ Service Rating: **${ticket.serviceRating}/5**\n⭐ Staff Rating: **${ticket.staffRating}/5**\n⭐ Average: **${avgRating.toFixed(1)}/5**`)
+                .addFields({
+                  name: '📝 Want to share your experience?',
+                  value: `Use the \`/vouch\` command in this channel to share your experience publicly!\n\n**What to include:**\n• Your experience with the service\n• Rating (1-5 stars)\n• Optional proof screenshot\n\nYour feedback helps us grow and helps other customers!`,
+                  inline: false
+                })
+                .setFooter({ text: `Ticket ID: ${ticket.id}` })
+                .setTimestamp();
+              
+              // Enviar en canal público con mención del usuario
+              await vouchesChannel.send({ 
+                content: user ? `<@${ticket.userId}>` : null,
+                embeds: [vouchMessage] 
+              });
+              
+              console.log(`[TICKET] ✅ Positive review notification sent to vouches channel for ${ticket.id}`);
+            } catch (vouchError) {
+              console.error('[TICKET] Error sending vouch message to public channel:', vouchError);
+            }
           }
+        } else if (vouchesChannelId && !isPositiveReview) {
+          console.log(`[TICKET] Review not positive enough (${avgRating}/5) - not sending to vouches channel`);
         }
 
         // Enviar mensaje de que se cerrará en unos segundos
@@ -1619,6 +1636,9 @@ export class TicketManager {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Transcript - ${ticket.id}</title>
     <style>
+        * {
+            box-sizing: border-box;
+        }
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
@@ -1638,48 +1658,137 @@ export class TicketManager {
             color: #667eea;
             border-bottom: 3px solid #667eea;
             padding-bottom: 10px;
+            margin-bottom: 20px;
+        }
+        h2 {
+            color: #764ba2;
+            margin-top: 30px;
+            margin-bottom: 20px;
         }
         .info {
             background: #f5f5f5;
-            padding: 15px;
-            border-radius: 5px;
+            padding: 20px;
+            border-radius: 8px;
             margin: 20px 0;
+            border-left: 4px solid #667eea;
         }
         .info-item {
-            margin: 10px 0;
+            margin: 12px 0;
+            line-height: 1.6;
         }
         .info-label {
             font-weight: bold;
             color: #667eea;
+            display: inline-block;
+            min-width: 150px;
         }
         .messages {
             margin-top: 30px;
         }
         .message {
-            padding: 15px;
-            margin: 10px 0;
+            padding: 15px 20px;
+            margin: 15px 0;
             border-left: 4px solid #667eea;
             background: #f9f9f9;
-            border-radius: 5px;
+            border-radius: 8px;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .message:hover {
+            transform: translateX(5px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        }
+        .user-message {
+            border-left-color: #43b581 !important;
+            background: #f0f9f4;
+        }
+        .bot-message {
+            border-left-color: #5865F2 !important;
+            background: #f0f3ff;
         }
         .message-header {
             font-weight: bold;
             color: #667eea;
-            margin-bottom: 5px;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        .author-name {
+            font-size: 1.1em;
+        }
+        .author-id {
+            color: #999;
+            font-size: 0.85em;
+            font-weight: normal;
+        }
+        .bot-badge {
+            background: #5865F2;
+            color: white;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 0.75em;
+            font-weight: bold;
         }
         .message-time {
             color: #999;
             font-size: 0.9em;
+            margin-bottom: 8px;
         }
         .message-content {
-            margin-top: 5px;
+            margin-top: 10px;
+            line-height: 1.6;
+            color: #333;
+            word-wrap: break-word;
         }
         .embed {
             background: #e8e8e8;
-            padding: 10px;
-            border-radius: 5px;
-            margin-top: 5px;
-            font-style: italic;
+            padding: 12px 15px;
+            border-radius: 6px;
+            margin-top: 10px;
+            border-left: 3px solid #667eea;
+        }
+        .embed strong {
+            color: #667eea;
+        }
+        .embed p {
+            margin: 8px 0 0 0;
+            color: #555;
+        }
+        .attachments {
+            margin-top: 12px;
+            padding: 12px;
+            background: #fff9e6;
+            border-radius: 6px;
+            border-left: 3px solid #ffaa00;
+        }
+        .attachments strong {
+            color: #ff8800;
+        }
+        .attachments a {
+            color: #667eea;
+            text-decoration: none;
+            display: inline-block;
+            margin: 5px 0;
+        }
+        .attachments a:hover {
+            text-decoration: underline;
+        }
+        .attachment-image {
+            max-width: 400px;
+            max-height: 300px;
+            border-radius: 8px;
+            margin: 10px 0;
+            border: 2px solid #ddd;
+            display: block;
+        }
+        @media (max-width: 768px) {
+            .container {
+                padding: 15px;
+            }
+            .attachment-image {
+                max-width: 100%;
+            }
         }
     </style>
 </head>
@@ -1688,34 +1797,96 @@ export class TicketManager {
         <h1>📄 Transcript - ${ticket.id}</h1>
         
         <div class="info">
-            <div class="info-item"><span class="info-label">Ticket Owner:</span> ${user ? `${user.user.tag} (${user.user.id})` : `User ID: ${ticket.userId}`}</div>
-            <div class="info-item"><span class="info-label">Channel Name:</span> ${channel.name}</div>
-            <div class="info-item"><span class="info-label">Channel ID:</span> ${channel.id}</div>
-            <div class="info-item"><span class="info-label">Category:</span> ${ticket.category}</div>
-            <div class="info-item"><span class="info-label">Created:</span> ${new Date(ticket.createdAt).toLocaleString('en-US', { dateStyle: 'full', timeStyle: 'long' })}</div>
-            <div class="info-item"><span class="info-label">Closed:</span> ${ticket.closedAt ? new Date(ticket.closedAt).toLocaleString('en-US', { dateStyle: 'full', timeStyle: 'long' }) : 'N/A'}</div>
-            ${claimedBy ? `<div class="info-item"><span class="info-label">Claimed by:</span> ${claimedBy.user.tag} (${claimedBy.user.id})</div>` : '<div class="info-item"><span class="info-label">Claimed by:</span> Nobody claimed this ticket</div>'}
-            ${closedBy ? `<div class="info-item"><span class="info-label">Closed by:</span> ${closedBy.user.tag} (${closedBy.user.id}) - ${ticket.closedByType === 'owner' ? 'Owner/Admin' : ticket.closedByType === 'user' ? 'Ticket Creator' : 'Staff'}</div>` : ''}
-            ${ticket.closeReason ? `<div class="info-item"><span class="info-label">Close Reason:</span> ${ticket.closeReason}</div>` : ''}
-            <div class="info-item"><span class="info-label">Service Rating:</span> ${ticket.serviceRating || 'N/A'}/5</div>
-            <div class="info-item"><span class="info-label">Staff Rating:</span> ${ticket.staffRating || 'N/A'}/5</div>
-            <div class="info-item"><span class="info-label">Participants:</span> ${participantsList.replace(/<@(\d+)>/g, 'User ID: $1')}</div>
+            <div class="info-item"><span class="info-label">🎫 Ticket ID:</span> ${ticket.id}</div>
+            <div class="info-item"><span class="info-label">👤 Ticket Owner:</span> ${user ? `${user.user.tag} (${user.user.id})` : `User ID: ${ticket.userId}`}</div>
+            <div class="info-item"><span class="info-label">📝 Channel Name:</span> ${channel.name}</div>
+            <div class="info-item"><span class="info-label">📂 Category:</span> ${ticket.category}</div>
+            <div class="info-item"><span class="info-label">📅 Created:</span> ${new Date(ticket.createdAt).toLocaleString('en-US', { dateStyle: 'full', timeStyle: 'long' })}</div>
+            <div class="info-item"><span class="info-label">🔒 Closed:</span> ${ticket.closedAt ? new Date(ticket.closedAt).toLocaleString('en-US', { dateStyle: 'full', timeStyle: 'long' }) : 'N/A'}</div>
+            ${claimedBy ? `<div class="info-item"><span class="info-label">✅ Claimed by:</span> ${claimedBy.user.tag} (${claimedBy.user.id})</div>` : '<div class="info-item"><span class="info-label">✅ Claimed by:</span> Nobody claimed this ticket</div>'}
+            ${closedBy ? `<div class="info-item"><span class="info-label">🔒 Closed by:</span> ${closedBy.user.tag} (${closedBy.user.id}) - ${ticket.closedByType === 'owner' ? 'Owner/Admin' : ticket.closedByType === 'user' ? 'Ticket Creator' : 'Staff'}</div>` : ''}
+            ${ticket.closeReason ? `<div class="info-item"><span class="info-label">📝 Close Reason:</span> ${ticket.closeReason}</div>` : ''}
+            <div class="info-item"><span class="info-label">⭐ Service Rating:</span> ${ticket.serviceRating || 'N/A'}/5 ${'⭐'.repeat(ticket.serviceRating || 0)}</div>
+            <div class="info-item"><span class="info-label">👤 Staff Rating:</span> ${ticket.staffRating || 'N/A'}/5 ${'⭐'.repeat(ticket.staffRating || 0)}</div>
+            <div class="info-item"><span class="info-label">💬 Total Messages:</span> ${sortedMessages.length}</div>
         </div>
         
+        <h2>💬 Messages (${sortedMessages.length} total)</h2>
         <div class="messages">
-            <h2>--- Messages ---</h2>
 `;
 
-      for (const msg of sortedMessages.values()) {
-        const date = new Date(msg.createdTimestamp).toLocaleString('en-US', { dateStyle: 'short', timeStyle: 'medium' });
-        const content = msg.content || '(No text content)';
+      // Procesar todos los mensajes con mejor visualización
+      for (const msg of sortedMessages) {
+        const date = new Date(msg.createdTimestamp).toLocaleString('en-US', { 
+          year: 'numeric',
+          month: 'short', 
+          day: '2-digit',
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+          hour12: true
+        });
+        
+        // Escapar HTML para seguridad
+        const escapeHtml = (text) => {
+          return text
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
+        };
+        
+        const content = msg.content ? escapeHtml(msg.content) : '(No text content)';
+        const authorTag = escapeHtml(msg.author.tag);
+        const authorId = msg.author.id;
+        const isBot = msg.author.bot;
+        
+        // Color diferente para bot vs usuario
+        const messageClass = isBot ? 'message bot-message' : 'message user-message';
+        const borderColor = isBot ? '#5865F2' : '#43b581';
+        
         transcriptText += `
-            <div class="message">
-                <div class="message-header">${msg.author.tag}</div>
-                <div class="message-time">${date}</div>
-                <div class="message-content">${content.replace(/\n/g, '<br>')}</div>
-                ${msg.embeds.length > 0 ? `<div class="embed">[Embed: ${msg.embeds[0].title || 'No title'}]</div>` : ''}
-                ${msg.attachments.size > 0 ? `<div class="embed">[${msg.attachments.size} Attachment(s)]</div>` : ''}
+            <div class="${messageClass}" style="border-left-color: ${borderColor};">
+                <div class="message-header">
+                    <span class="author-name">${authorTag}</span>
+                    <span class="author-id">(ID: ${authorId})</span>
+                    ${isBot ? '<span class="bot-badge">BOT</span>' : ''}
+                </div>
+                <div class="message-time">⏰ ${date}</div>
+                <div class="message-content">${content.replace(/\n/g, '<br>')}</div>`;
+        
+        // Mostrar embeds si existen
+        if (msg.embeds.length > 0) {
+          for (const embed of msg.embeds) {
+            const embedTitle = embed.title ? escapeHtml(embed.title) : 'Untitled Embed';
+            const embedDesc = embed.description ? escapeHtml(embed.description.substring(0, 200)) + (embed.description.length > 200 ? '...' : '') : '';
+            transcriptText += `
+                <div class="embed">
+                    <strong>📋 Embed: ${embedTitle}</strong>
+                    ${embedDesc ? `<p>${embedDesc.replace(/\n/g, '<br>')}</p>` : ''}
+                </div>`;
+          }
+        }
+        
+        // Mostrar attachments si existen
+        if (msg.attachments.size > 0) {
+          transcriptText += `<div class="attachments"><strong>📎 Attachments (${msg.attachments.size}):</strong><br>`;
+          for (const attachment of msg.attachments.values()) {
+            const attName = escapeHtml(attachment.name);
+            const attUrl = attachment.url;
+            const isImage = attachment.contentType?.startsWith('image/');
+            
+            if (isImage) {
+              transcriptText += `<a href="${attUrl}" target="_blank"><img src="${attUrl}" alt="${attName}" class="attachment-image" /></a><br>`;
+            } else {
+              transcriptText += `<a href="${attUrl}" target="_blank">📄 ${attName}</a><br>`;
+            }
+          }
+          transcriptText += `</div>`;
+        }
+        
+        transcriptText += `
             </div>
 `;
       }
