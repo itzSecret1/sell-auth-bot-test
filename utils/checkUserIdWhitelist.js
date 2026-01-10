@@ -1,4 +1,5 @@
 import { GuildConfig } from './GuildConfig.js';
+import { NotWhitelistedException } from './NotWhitelistedException.js';
 
 export async function checkUserIdWhitelist(command, interaction, config) {
   const userId = interaction.user.id;
@@ -54,7 +55,12 @@ export async function checkUserIdWhitelist(command, interaction, config) {
 
     // Fallback to old whitelist system (for backwards compatibility)
     const whitelist = config.BOT_USER_ID_WHITELIST || [];
-    return Array.isArray(whitelist) && whitelist.includes(userId);
+    if (Array.isArray(whitelist) && whitelist.includes(userId)) {
+      return true;
+    }
+    
+    // Si no tiene permisos, lanzar excepción con mensaje descriptivo
+    throw new NotWhitelistedException(command, guildConfig, config, interaction);
   }
 
   return true;
